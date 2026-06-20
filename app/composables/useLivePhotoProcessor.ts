@@ -4,6 +4,7 @@ interface LivePhotoProcessingState {
   isProcessing: boolean
   progress: number
   mp4Blob: Blob | null
+  blobUrl: string | null // 缓存 Blob URL
   error: string | null
   lastProcessed?: number // 添加时间戳用于缓存管理
   retryCount?: number // 添加重试计数
@@ -132,6 +133,7 @@ export const useLivePhotoProcessor = () => {
       isProcessing: true,
       progress: 0,
       mp4Blob: null,
+      blobUrl: null,
       error: null,
       retryCount: currentRetry,
       lastProcessed: Date.now(),
@@ -195,38 +197,18 @@ export const useLivePhotoProcessor = () => {
       const movBlob = new Blob(chunks)
       updateProgress(70)
 
-      // 优化的视频处理：先检查格式兼容性
+      // 直接创建 MP4 blob，跳过格式验证
       const mp4Blob = new Blob([movBlob], { type: 'video/mp4' })
-      updateProgress(85)
 
-      // 更快的格式验证：只检查元数据
-      const videoUrl = URL.createObjectURL(mp4Blob)
-      const video = document.createElement('video')
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Video validation timeout'))
-        }, 5000) // 5秒验证超时
-
-        video.onloadedmetadata = () => {
-          clearTimeout(timeout)
-          resolve()
-        }
-        video.onerror = () => {
-          clearTimeout(timeout)
-          reject(new Error('Video format not supported'))
-        }
-        video.src = videoUrl
-        video.load()
-      })
-
-      URL.revokeObjectURL(videoUrl)
-      updateProgress(95)
+      // 创建并缓存 Blob URL
+      const blobUrl = URL.createObjectURL(mp4Blob)
+      updateProgress(90)
 
       // 成功完成
       state.isProcessing = false
       state.progress = 100
       state.mp4Blob = mp4Blob
+      state.blobUrl = blobUrl
       state.lastProcessed = Date.now()
       state.error = null
       processedLivePhotos.value.set(photoId, { ...state })
@@ -318,6 +300,7 @@ export const useLivePhotoProcessor = () => {
       isProcessing: true,
       progress: 0,
       mp4Blob: null,
+      blobUrl: null,
       error: null,
       retryCount: currentRetry,
       lastProcessed: Date.now(),
@@ -385,34 +368,18 @@ export const useLivePhotoProcessor = () => {
 
       updateProgress(85)
 
+      // 直接创建 MP4 blob，跳过格式验证
       const mp4Blob = new Blob([buffer.slice(offset)], { type: 'video/mp4' })
 
-      // 验证视频格式
-      const videoUrl = URL.createObjectURL(mp4Blob)
-      const video = document.createElement('video')
-      await new Promise<void>((resolve, reject) => {
-        const vidTimeout = setTimeout(
-          () => reject(new Error('Video validation timeout')),
-          5000,
-        )
-        video.onloadedmetadata = () => {
-          clearTimeout(vidTimeout)
-          resolve()
-        }
-        video.onerror = () => {
-          clearTimeout(vidTimeout)
-          reject(new Error('Video format not supported'))
-        }
-        video.src = videoUrl
-        video.load()
-      })
-      URL.revokeObjectURL(videoUrl)
+      // 创建并缓存 Blob URL
+      const blobUrl = URL.createObjectURL(mp4Blob)
 
       updateProgress(95)
 
       state.isProcessing = false
       state.progress = 100
       state.mp4Blob = mp4Blob
+      state.blobUrl = blobUrl
       state.lastProcessed = Date.now()
       state.error = null
       processedLivePhotos.value.set(photoId, { ...state })
@@ -455,6 +422,14 @@ export const useLivePhotoProcessor = () => {
    */
   const getProcessingState = (photoId: string) => {
     return computed(() => processedLivePhotos.value.get(photoId) || null)
+  }
+
+  /**
+   * 获取照片的缓存 Blob URL
+   */
+  const getBlobUrl = (photoId: string): string | null => {
+    const state = processedLivePhotos.value.get(photoId)
+    return state?.blobUrl || null
   }
 
   /**
@@ -573,8 +548,10 @@ export const useLivePhotoProcessor = () => {
     // 清理过期条目
     expiredEntries.forEach((photoId) => {
       const state = processedLivePhotos.value.get(photoId)
+      if (state?.blobUrl) {
+        URL.revokeObjectURL(state.blobUrl)
+      }
       if (state?.mp4Blob) {
-        // 这里可以安全地清理，因为已过期
         state.mp4Blob = null
       }
       processedLivePhotos.value.delete(photoId)
@@ -591,6 +568,9 @@ export const useLivePhotoProcessor = () => {
         processedLivePhotos.value.size - maxCacheSize,
       )
       toRemove.forEach(([photoId, state]) => {
+        if (state.blobUrl) {
+          URL.revokeObjectURL(state.blobUrl)
+        }
         if (state.mp4Blob) {
           state.mp4Blob = null
         }
@@ -637,8 +617,11 @@ export const useLivePhotoProcessor = () => {
    * 清理所有缓存（完全清理）
    */
   const clearProcessedCache = () => {
-    // 释放所有 blob URLs
+    // 释放所有 blob URLs 和 blob 对象
     processedLivePhotos.value.forEach((state) => {
+      if (state.blobUrl) {
+        URL.revokeObjectURL(state.blobUrl)
+      }
       if (state.mp4Blob) {
         state.mp4Blob = null
       }
@@ -656,6 +639,7 @@ export const useLivePhotoProcessor = () => {
     convertMovToMp4,
     extractVideoFromMotionPhoto,
     getProcessingState,
+    getBlobUrl,
     batchProcessLivePhotos,
     preloadLivePhotosInViewport,
     cleanupExpiredCache,

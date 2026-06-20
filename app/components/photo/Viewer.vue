@@ -87,7 +87,7 @@ const livePhotoVideoRef = useDomRef()
 const longPressTimer = ref<NodeJS.Timeout | null>(null)
 
 // Import LivePhoto processor
-const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState } = useLivePhotoProcessor()
+const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState, getBlobUrl } = useLivePhotoProcessor()
 
 // Computed
 const currentPhoto = computed(() => props.photos[props.currentIndex])
@@ -127,10 +127,8 @@ watch(
         clearTimeout(longPressTimer.value)
         longPressTimer.value = null
       }
-      if (livePhotoVideoBlobUrl.value) {
-        URL.revokeObjectURL(livePhotoVideoBlobUrl.value)
-        livePhotoVideoBlobUrl.value = null
-      }
+      // Blob URL 现在由 useLivePhotoProcessor 统一管理，无需手动 revoke
+      livePhotoVideoBlobUrl.value = null
       livePhotoVideoBlob.value = null
 
       if (zoomLevelTimer.value) {
@@ -244,6 +242,13 @@ const processCurrentLivePhoto = async () => {
   if (!photo || !photo.isLivePhoto) return
 
   try {
+    // 先检查缓存中是否有 Blob URL
+    const cachedBlobUrl = getBlobUrl(photo.id)
+    if (cachedBlobUrl) {
+      livePhotoVideoBlobUrl.value = cachedBlobUrl
+      return
+    }
+
     let blob: Blob | null = null
 
     if (photo.livePhotoVideoUrl) {
@@ -260,11 +265,11 @@ const processCurrentLivePhoto = async () => {
 
     if (blob) {
       livePhotoVideoBlob.value = blob
-      // Clean up previous blob URL
-      if (livePhotoVideoBlobUrl.value) {
-        URL.revokeObjectURL(livePhotoVideoBlobUrl.value)
+      // 使用缓存的 Blob URL（由 useLivePhotoProcessor 创建）
+      const newBlobUrl = getBlobUrl(photo.id)
+      if (newBlobUrl) {
+        livePhotoVideoBlobUrl.value = newBlobUrl
       }
-      livePhotoVideoBlobUrl.value = URL.createObjectURL(blob)
     }
   } catch (error) {
     console.error('Failed to process LivePhoto in viewer:', error)
@@ -538,11 +543,8 @@ onUnmounted(() => {
     longPressTimer.value = null
   }
 
-  // Clean up LivePhoto blob URL
-  if (livePhotoVideoBlobUrl.value) {
-    URL.revokeObjectURL(livePhotoVideoBlobUrl.value)
-    livePhotoVideoBlobUrl.value = null
-  }
+  // Blob URL 现在由 useLivePhotoProcessor 统一管理，无需手动 revoke
+  livePhotoVideoBlobUrl.value = null
 })
 
 // Swiper modules

@@ -28,7 +28,7 @@ const isVideoPlaying = ref(false)
 const isVideoLoaded = ref(false)
 const videoBlob = ref<Blob | null>(null)
 const videoBlobUrl = ref<string | null>(null)
-const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState } = useLivePhotoProcessor()
+const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState, getBlobUrl } = useLivePhotoProcessor()
 
 const isTouching = ref(false)
 const touchCount = ref(0)
@@ -308,6 +308,14 @@ const processLivePhotoWhenVisible = async () => {
   if (!props.photo.isLivePhoto || !isVisible.value) return
 
   try {
+    // 先检查缓存中是否有 Blob URL
+    const cachedBlobUrl = getBlobUrl(props.photo.id)
+    if (cachedBlobUrl) {
+      videoBlobUrl.value = cachedBlobUrl
+      isVideoLoaded.value = true
+      return
+    }
+
     let blob: Blob | null = null
 
     if (props.photo.livePhotoVideoUrl) {
@@ -327,11 +335,11 @@ const processLivePhotoWhenVisible = async () => {
 
     if (blob) {
       videoBlob.value = blob
-      // Clean up previous blob URL
-      if (videoBlobUrl.value) {
-        URL.revokeObjectURL(videoBlobUrl.value)
+      // 使用缓存的 Blob URL（由 useLivePhotoProcessor 创建）
+      const newBlobUrl = getBlobUrl(props.photo.id)
+      if (newBlobUrl) {
+        videoBlobUrl.value = newBlobUrl
       }
-      videoBlobUrl.value = URL.createObjectURL(blob)
       isVideoLoaded.value = true
 
       // 预热视频元素以提高播放性能
@@ -476,10 +484,7 @@ onUnmounted(() => {
     longPressTimer.value = null
   }
 
-  // Clean up video blob URL
-  if (videoBlobUrl.value) {
-    URL.revokeObjectURL(videoBlobUrl.value)
-  }
+  // Blob URL 现在由 useLivePhotoProcessor 统一管理，无需手动 revoke
 })
 </script>
 
