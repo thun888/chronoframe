@@ -332,8 +332,7 @@ const handleLivePhotoMouseLeave = () => {
 const handleLivePhotoTouchStart = (event: TouchEvent) => {
   if (
     isMobile.value &&
-    currentPhoto.value?.isLivePhoto &&
-    livePhotoVideoBlobUrl.value
+    currentPhoto.value?.isLivePhoto
   ) {
     touchCount.value = event.touches.length
 

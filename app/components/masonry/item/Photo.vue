@@ -197,7 +197,7 @@ const handleVideoEnded = () => {
 
 // Mobile touch handlers for LivePhoto
 const handleTouchStart = (event: TouchEvent) => {
-  if (!isMobile.value || !props.photo.isLivePhoto || !videoBlobUrl.value) return
+  if (!isMobile.value || !props.photo.isLivePhoto) return
 
   touchCount.value = event.touches.length
 
@@ -209,9 +209,13 @@ const handleTouchStart = (event: TouchEvent) => {
       isTouching.value = true
 
       // Set a timer for long press (350ms)
-      longPressTimer.value = setTimeout(() => {
+      longPressTimer.value = setTimeout(async () => {
         // Double check: only play if still single touch and touching
         if (isTouching.value && touchCount.value === 1) {
+          // 如果视频还没处理，先处理
+          if (!videoBlobUrl.value && !processingState.value?.isProcessing) {
+            await processLivePhotoWhenVisible()
+          }
           playLivePhotoVideo()
         }
       }, 350)
