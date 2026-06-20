@@ -209,7 +209,6 @@ const processVisibleLivePhotos = async () => {
       (photo): photo is Photo =>
         photo != null &&
         photo.isLivePhoto === 1 &&
-        Boolean(photo.livePhotoVideoUrl) &&
         !processedBatch.value.has(photo.id),
     )
 
@@ -224,7 +223,9 @@ const processVisibleLivePhotos = async () => {
   batchProcessLivePhotos(
     livePhotosToProcess.map((photo) => ({
       id: photo.id,
-      livePhotoVideoUrl: photo.livePhotoVideoUrl!,
+      livePhotoVideoUrl: photo.livePhotoVideoUrl || undefined,
+      storageKey: photo.storageKey || undefined,
+      motionPhotoVideoOffset: photo.motionPhotoVideoOffset ?? undefined,
     })),
   )
 }

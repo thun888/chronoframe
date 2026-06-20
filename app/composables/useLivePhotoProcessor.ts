@@ -14,6 +14,67 @@ const processedLivePhotos = ref<Map<string, LivePhotoProcessingState>>(
   new Map(),
 )
 
+/**
+ * 在 ArrayBuffer 中定位嵌入的 MP4 视频偏移量
+ * 移植自 @thun888/live-photo 的 findVideoOffset 算法
+ */
+function findVideoOffset(buffer: ArrayBuffer): number {
+  // 1. Google MicroVideoOffset (XMP 元数据)
+  const text = new TextDecoder().decode(
+    // 只扫描前 512KB，XMP 不会在更后面
+    buffer.slice(0, 512 * 1024),
+  )
+  let match = text.match(/MicroVideoOffset=["']?(\d+)["']?/)
+  if (!match) match = text.match(/MicroVideoOffset>(\d+)</)
+
+  if (match) {
+    const reverseOffset = parseInt(match[1], 10)
+    const offset = buffer.byteLength - reverseOffset
+    if (offset > 0 && offset < buffer.byteLength) {
+      return offset
+    }
+  }
+
+  // 2. 回退：扫描 ftyp 签名（兼容三星等设备）
+  const view = new Uint8Array(buffer)
+  const ftyp = [0x66, 0x74, 0x79, 0x70] // 'ftyp'
+
+  // 从文件末尾 8MB 开始扫描（视频通常在末尾）
+  const scanStart = Math.max(0, view.length - 8 * 1024 * 1024)
+  for (let i = scanStart; i < view.length - 4; i++) {
+    if (
+      view[i] === ftyp[0] &&
+      view[i + 1] === ftyp[1] &&
+      view[i + 2] === ftyp[2] &&
+      view[i + 3] === ftyp[3]
+    ) {
+      const offset = i - 4
+      // 验证：视频块至少 8KB
+      if (offset > 0 && buffer.byteLength - offset > 8 * 1024) {
+        return offset
+      }
+    }
+  }
+
+  // 全文扫描兜底
+  for (let i = 0; i < scanStart; i++) {
+    if (
+      view[i] === ftyp[0] &&
+      view[i + 1] === ftyp[1] &&
+      view[i + 2] === ftyp[2] &&
+      view[i + 3] === ftyp[3]
+    ) {
+      const offset = i - 4
+      if (offset > 0 && buffer.byteLength - offset > 8 * 1024) {
+        // 排除文件开头的 ftyp（那是图片格式的 ftyp，不是视频的）
+        if (i > 32) return offset
+      }
+    }
+  }
+
+  return -1
+}
+
 export const useLivePhotoProcessor = () => {
   /**
    * 将 MOV 文件转换为 MP4 blob
@@ -207,6 +268,189 @@ export const useLivePhotoProcessor = () => {
   }
 
   /**
+   * 从 Motion Photo 原图中提取内嵌视频
+   * @param imageUrl 原图 URL（如 /image/{storageKey}）
+   * @param photoId 照片 ID
+   * @param videoOffset 可选，后端预计算的视频偏移量，传入时跳过扫描
+   */
+  const extractVideoFromMotionPhoto = async (
+    imageUrl: string,
+    photoId: string,
+    videoOffset?: number | null,
+  ): Promise<Blob | null> => {
+    // 检查缓存状态
+    const existing = processedLivePhotos.value.get(photoId)
+    if (existing) {
+      const now = Date.now()
+      const cacheExpiry = 24 * 60 * 60 * 1000
+
+      if (
+        existing.mp4Blob &&
+        existing.lastProcessed &&
+        now - existing.lastProcessed < cacheExpiry
+      ) {
+        return existing.mp4Blob
+      }
+
+      if (existing.isProcessing) {
+        return new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(null), 30000)
+          const checkInterval = setInterval(() => {
+            const current = processedLivePhotos.value.get(photoId)
+            if (current && !current.isProcessing) {
+              clearInterval(checkInterval)
+              clearTimeout(timeout)
+              resolve(current.mp4Blob)
+            }
+          }, 100)
+        })
+      }
+    }
+
+    const maxRetries = 3
+    const currentRetry = existing?.retryCount || 0
+    if (currentRetry >= maxRetries) {
+      console.warn(`Max retries reached for MotionPhoto extraction ${photoId}`)
+      return null
+    }
+
+    const state: LivePhotoProcessingState = {
+      isProcessing: true,
+      progress: 0,
+      mp4Blob: null,
+      error: null,
+      retryCount: currentRetry,
+      lastProcessed: Date.now(),
+    }
+    processedLivePhotos.value.set(photoId, state)
+
+    try {
+      const updateProgress = (progress: number) => {
+        state.progress = progress
+        processedLivePhotos.value.set(photoId, { ...state })
+      }
+
+      updateProgress(10)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60秒超时（原图较大）
+
+      const response = await fetch(imageUrl, { signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch image: ${response.status} ${response.statusText}`,
+        )
+      }
+
+      updateProgress(30)
+
+      // 流式读取
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('Failed to get response reader')
+
+      const chunks: Uint8Array[] = []
+      const contentLength = parseInt(
+        response.headers.get('content-length') || '0',
+      )
+      let receivedLength = 0
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        receivedLength += value.length
+        if (contentLength > 0) {
+          updateProgress(30 + Math.round((receivedLength / contentLength) * 40))
+        }
+      }
+
+      const buffer = new Blob(chunks).arrayBuffer
+        ? await new Blob(chunks).arrayBuffer()
+        : new Uint8Array(
+            chunks.reduce((acc, c) => acc + c.length, 0),
+          ).buffer
+
+      updateProgress(70)
+
+      // 查找嵌入视频的偏移量（优先使用后端预计算的值）
+      const offset =
+        videoOffset != null && videoOffset > 0
+          ? videoOffset
+          : findVideoOffset(buffer)
+      if (offset <= 0) {
+        throw new Error('No embedded video found in Motion Photo')
+      }
+
+      updateProgress(85)
+
+      const mp4Blob = new Blob([buffer.slice(offset)], { type: 'video/mp4' })
+
+      // 验证视频格式
+      const videoUrl = URL.createObjectURL(mp4Blob)
+      const video = document.createElement('video')
+      await new Promise<void>((resolve, reject) => {
+        const vidTimeout = setTimeout(
+          () => reject(new Error('Video validation timeout')),
+          5000,
+        )
+        video.onloadedmetadata = () => {
+          clearTimeout(vidTimeout)
+          resolve()
+        }
+        video.onerror = () => {
+          clearTimeout(vidTimeout)
+          reject(new Error('Video format not supported'))
+        }
+        video.src = videoUrl
+        video.load()
+      })
+      URL.revokeObjectURL(videoUrl)
+
+      updateProgress(95)
+
+      state.isProcessing = false
+      state.progress = 100
+      state.mp4Blob = mp4Blob
+      state.lastProcessed = Date.now()
+      state.error = null
+      processedLivePhotos.value.set(photoId, { ...state })
+
+      return mp4Blob
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error'
+
+      if (currentRetry < maxRetries - 1) {
+        console.warn(
+          `MotionPhoto extraction failed (attempt ${currentRetry + 1}/${maxRetries}), retrying...`,
+          errorMessage,
+        )
+        state.retryCount = currentRetry + 1
+        state.isProcessing = false
+        state.error = `Retrying... (${currentRetry + 1}/${maxRetries})`
+        processedLivePhotos.value.set(photoId, { ...state })
+
+        const retryDelay = Math.min(1000 * Math.pow(2, currentRetry), 5000)
+        await new Promise((resolve) => setTimeout(resolve, retryDelay))
+
+        return extractVideoFromMotionPhoto(imageUrl, photoId, videoOffset)
+      }
+
+      state.isProcessing = false
+      state.error = errorMessage
+      state.lastProcessed = Date.now()
+      processedLivePhotos.value.set(photoId, { ...state })
+      console.error(
+        `Failed to extract MotionPhoto video after ${maxRetries} attempts:`,
+        error,
+      )
+      return null
+    }
+  }
+
+  /**
    * 获取照片的处理状态
    */
   const getProcessingState = (photoId: string) => {
@@ -220,6 +464,8 @@ export const useLivePhotoProcessor = () => {
     photos: Array<{
       id: string
       livePhotoVideoUrl?: string | null
+      storageKey?: string
+      motionPhotoVideoOffset?: number | null
       isVisible?: boolean
     }>,
     options: {
@@ -234,23 +480,23 @@ export const useLivePhotoProcessor = () => {
       prefetchDistance = 3,
     } = options
 
-    const livePhotos = photos.filter((photo) => photo.livePhotoVideoUrl)
+    // 包含所有 Live Photo（有 videoUrl 的和有 storageKey 的 Motion Photo）
+    const livePhotos = photos.filter(
+      (photo) => photo.livePhotoVideoUrl || photo.storageKey,
+    )
 
     if (prioritizeVisible) {
-      // 优先处理可见的LivePhoto
       const visiblePhotos = livePhotos.filter((photo) => photo.isVisible)
       const nearbyPhotos = livePhotos
         .filter((photo) => !photo.isVisible)
         .slice(0, prefetchDistance)
 
-      // 先处理可见的
       if (visiblePhotos.length > 0) {
         await processPhotoBatch(visiblePhotos, maxConcurrent)
       }
 
-      // 然后预加载附近的
       if (nearbyPhotos.length > 0) {
-        processPhotoBatch(nearbyPhotos, Math.min(maxConcurrent, 1)) // 降低并发数
+        processPhotoBatch(nearbyPhotos, Math.min(maxConcurrent, 1))
       }
     } else {
       await processPhotoBatch(livePhotos, maxConcurrent)
@@ -261,18 +507,31 @@ export const useLivePhotoProcessor = () => {
    * 处理照片批次的辅助函数
    */
   const processPhotoBatch = async (
-    photos: Array<{ id: string; livePhotoVideoUrl: string }>,
+    photos: Array<{
+      id: string
+      livePhotoVideoUrl?: string | null
+      storageKey?: string
+      motionPhotoVideoOffset?: number | null
+    }>,
     maxConcurrent: number,
   ) => {
     for (let i = 0; i < photos.length; i += maxConcurrent) {
       const batch = photos.slice(i, i + maxConcurrent)
       await Promise.allSettled(
-        batch.map((photo) =>
-          convertMovToMp4(photo.livePhotoVideoUrl, photo.id),
-        ),
+        batch.map((photo) => {
+          if (photo.livePhotoVideoUrl) {
+            return convertMovToMp4(photo.livePhotoVideoUrl, photo.id)
+          } else if (photo.storageKey) {
+            return extractVideoFromMotionPhoto(
+              `/image/${photo.storageKey}`,
+              photo.id,
+              photo.motionPhotoVideoOffset,
+            )
+          }
+          return Promise.resolve(null)
+        }),
       )
 
-      // 添加小延迟避免过度占用资源
       if (i + maxConcurrent < photos.length) {
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
@@ -283,7 +542,12 @@ export const useLivePhotoProcessor = () => {
    * 批量处理视口内的实况照片（保持兼容性）
    */
   const batchProcessLivePhotos = async (
-    photos: Array<{ id: string; livePhotoVideoUrl?: string | null }>,
+    photos: Array<{
+      id: string
+      livePhotoVideoUrl?: string | null
+      storageKey?: string
+      motionPhotoVideoOffset?: number | null
+    }>,
   ) => {
     await preloadLivePhotosInViewport(photos, { maxConcurrent: 3 })
   }
@@ -390,6 +654,7 @@ export const useLivePhotoProcessor = () => {
 
   return {
     convertMovToMp4,
+    extractVideoFromMotionPhoto,
     getProcessingState,
     batchProcessLivePhotos,
     preloadLivePhotosInViewport,

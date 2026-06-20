@@ -36,6 +36,7 @@ export default eventHandler(async (event) => {
       title: photo.title,
       isLivePhoto: Boolean(photo.isLivePhoto),
       livePhotoVideoUrl: photo.livePhotoVideoUrl,
+      motionPhotoVideoOffset: photo.motionPhotoVideoOffset,
       originalUrl: photo.originalUrl,
       thumbnailUrl: photo.thumbnailUrl,
     }

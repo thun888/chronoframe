@@ -87,7 +87,7 @@ const livePhotoVideoRef = useDomRef()
 const longPressTimer = ref<NodeJS.Timeout | null>(null)
 
 // Import LivePhoto processor
-const { convertMovToMp4, getProcessingState } = useLivePhotoProcessor()
+const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState } = useLivePhotoProcessor()
 
 // Computed
 const currentPhoto = computed(() => props.photos[props.currentIndex])
@@ -250,10 +250,23 @@ const handleImageLoaded = () => {
 // LivePhoto processing and playback functions
 const processCurrentLivePhoto = async () => {
   const photo = currentPhoto.value
-  if (!photo || !photo.isLivePhoto || !photo.livePhotoVideoUrl) return
+  if (!photo || !photo.isLivePhoto) return
 
   try {
-    const blob = await convertMovToMp4(photo.livePhotoVideoUrl, photo.id)
+    let blob: Blob | null = null
+
+    if (photo.livePhotoVideoUrl) {
+      // Apple Live Photo: 独立 MOV 文件
+      blob = await convertMovToMp4(photo.livePhotoVideoUrl, photo.id)
+    } else if (photo.storageKey) {
+      // Motion Photo: 从原图中提取内嵌视频
+      blob = await extractVideoFromMotionPhoto(
+        `/image/${photo.storageKey}`,
+        photo.id,
+        photo.motionPhotoVideoOffset,
+      )
+    }
+
     if (blob) {
       livePhotoVideoBlob.value = blob
       // Clean up previous blob URL

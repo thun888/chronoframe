@@ -378,16 +378,14 @@ export class QueueManager {
             }
           }
 
-          // STEP 6: Motion Photo (XMP) 支持
+          // STEP 6: Motion Photo (XMP) 检测（不提取视频，由前端从原图中提取）
           await this.updateTaskStage(taskId, 'motion-photo')
           this.logger.info(`[${taskId}:in-stage] motion photo detection`)
           const motionPhotoInfo = imageBuffers.raw
             ? await processMotionPhotoFromXmp({
-                photoId,
                 storageKey,
                 rawImageBuffer: imageBuffers.raw,
                 exifData: normalizedExifData,
-                storageProvider,
                 logger: this.logger,
               })
             : null
@@ -417,10 +415,11 @@ export class QueueManager {
               )
             }
           } else {
+            // Motion Photo: 只标记，不存储提取的视频，由前端从原图中提取
             livePhotoInfo = {
               isLivePhoto: 1,
-              livePhotoVideoUrl: motionPhotoInfo.livePhotoVideoUrl || null,
-              livePhotoVideoKey: motionPhotoInfo.livePhotoVideoKey || null,
+              livePhotoVideoUrl: null,
+              livePhotoVideoKey: null,
             }
           }
 
@@ -459,14 +458,9 @@ export class QueueManager {
               motionPhotoInfo?.isMotionPhoto || livePhotoInfo?.isLivePhoto
                 ? 1
                 : 0,
-            livePhotoVideoUrl:
-              motionPhotoInfo?.livePhotoVideoUrl ||
-              livePhotoInfo?.livePhotoVideoUrl ||
-              null,
-            livePhotoVideoKey:
-              motionPhotoInfo?.livePhotoVideoKey ||
-              livePhotoInfo?.livePhotoVideoKey ||
-              null,
+            livePhotoVideoUrl: livePhotoInfo?.livePhotoVideoUrl || null,
+            livePhotoVideoKey: livePhotoInfo?.livePhotoVideoKey || null,
+            motionPhotoVideoOffset: motionPhotoInfo?.videoOffset ?? null,
           }
 
           const db = useDB()

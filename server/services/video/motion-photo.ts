@@ -1,21 +1,16 @@
 import type { ConsolaInstance } from 'consola'
 import type { NeededExif } from '~~/shared/types/photo'
-import type { StorageProvider } from '../storage'
 
 interface MotionPhotoProcessParams {
-  photoId: string
   storageKey: string
   rawImageBuffer: Buffer
   exifData?: NeededExif | null
-  storageProvider: StorageProvider
   logger?: ConsolaInstance
 }
 
 export interface MotionPhotoProcessResult {
   isMotionPhoto: boolean
-  livePhotoVideoKey?: string
-  livePhotoVideoUrl?: string
-  offset?: number
+  videoOffset?: number
   presentationTimestampUs?: number
 }
 
@@ -111,27 +106,70 @@ const extractXmpAttributeNumber = (
   return toNumber(match[1])
 }
 
-const validateMp4Buffer = (buffer: Buffer): boolean => {
-  if (buffer.length < MIN_VIDEO_SIZE_BYTES) {
-    return false
+/**
+ * 在 Buffer 中定位嵌入的 MP4 视频偏移量
+ * 与前端 findVideoOffset (useLivePhotoProcessor.ts) 保持一致的算法
+ */
+function findVideoOffset(buffer: Buffer): number {
+  // 1. Google MicroVideoOffset (XMP 元数据)
+  const text = buffer.toString('utf8', 0, Math.min(buffer.length, 512 * 1024))
+  let match = text.match(/MicroVideoOffset=["']?(\d+)["']?/)
+  if (!match) match = text.match(/MicroVideoOffset>(\d+)</)
+
+  if (match) {
+    const reverseOffset = parseInt(match[1], 10)
+    const offset = buffer.length - reverseOffset
+    if (offset > 0 && offset < buffer.length) {
+      return offset
+    }
   }
 
-  // MP4 should contain 'ftyp' brand within the first few bytes
-  const searchWindow = buffer.subarray(0, 32)
-  return searchWindow.indexOf(MP4_FTYP) !== -1
+  // 2. 回退：扫描 ftyp 签名（兼容三星等设备）
+  const ftyp = MP4_FTYP
+
+  // 从文件末尾 8MB 开始扫描（视频通常在末尾）
+  const scanStart = Math.max(0, buffer.length - 8 * 1024 * 1024)
+  for (let i = scanStart; i < buffer.length - 4; i++) {
+    if (
+      buffer[i] === ftyp[0] &&
+      buffer[i + 1] === ftyp[1] &&
+      buffer[i + 2] === ftyp[2] &&
+      buffer[i + 3] === ftyp[3]
+    ) {
+      const offset = i - 4
+      // 验证：视频块至少 8KB
+      if (offset > 0 && buffer.length - offset > MIN_VIDEO_SIZE_BYTES) {
+        return offset
+      }
+    }
+  }
+
+  // 全文扫描兜底
+  for (let i = 0; i < scanStart; i++) {
+    if (
+      buffer[i] === ftyp[0] &&
+      buffer[i + 1] === ftyp[1] &&
+      buffer[i + 2] === ftyp[2] &&
+      buffer[i + 3] === ftyp[3]
+    ) {
+      const offset = i - 4
+      if (offset > 0 && buffer.length - offset > MIN_VIDEO_SIZE_BYTES) {
+        // 排除文件开头的 ftyp（那是图片格式的 ftyp，不是视频的）
+        if (i > 32) return offset
+      }
+    }
+  }
+
+  return -1
 }
 
 export const processMotionPhotoFromXmp = async ({
-  photoId,
   storageKey,
   rawImageBuffer,
   exifData,
-  storageProvider,
   logger,
 }: MotionPhotoProcessParams): Promise<MotionPhotoProcessResult | null> => {
   try {
-    const rawLength = rawImageBuffer.length
-
     const exifIndicatesMotion =
       toBoolean(exifData?.MotionPhoto) || toBoolean(exifData?.MicroVideo)
     let detectedMotion = exifIndicatesMotion
@@ -140,17 +178,6 @@ export const processMotionPhotoFromXmp = async ({
       exifData?.MotionPhotoPresentationTimestampUs ??
         exifData?.MicroVideoPresentationTimestampUs,
     )
-
-    const offsetCandidates = new Set<number>()
-    const addOffsetCandidate = (value: number | null | undefined) => {
-      if (value === null || value === undefined) return
-      if (!Number.isFinite(value)) return
-      const numeric = Number(value)
-      if (numeric <= 0) return
-      offsetCandidates.add(numeric)
-    }
-
-    addOffsetCandidate(toNumber(exifData?.MicroVideoOffset))
 
     const xmpSegment = extractXmpSegment(rawImageBuffer)
     if (xmpSegment) {
@@ -174,13 +201,6 @@ export const processMotionPhotoFromXmp = async ({
         }
       }
 
-      ;[
-        extractXmpNumber(xmpSegment, 'MicroVideoOffset'),
-        extractXmpNumber(xmpSegment, 'GCamera:MicroVideoOffset'),
-        extractXmpAttributeNumber(xmpSegment, 'MicroVideoOffset'),
-        extractXmpAttributeNumber(xmpSegment, 'GCamera:MicroVideoOffset'),
-      ].forEach((candidate) => addOffsetCandidate(candidate))
-
       if (presentationTimestampUs === null) {
         presentationTimestampUs =
           extractXmpNumber(xmpSegment, 'MotionPhotoPresentationTimestampUs') ??
@@ -197,105 +217,37 @@ export const processMotionPhotoFromXmp = async ({
       }
     }
 
-    if (!detectedMotion && offsetCandidates.size === 0) {
-      return null
-    }
-
-    let resolvedOffset: number | null = null
-    let videoBuffer: Buffer | null = null
-
-    const candidateList = Array.from(offsetCandidates)
-    for (const candidate of candidateList) {
-      const possibleStarts = new Set<number>()
-      possibleStarts.add(candidate)
-      if (candidate < rawLength) {
-        possibleStarts.add(rawLength - candidate)
+    if (!detectedMotion) {
+      // 没有 XMP 标记时，尝试通过 ftyp 扫描检测
+      const offset = findVideoOffset(rawImageBuffer)
+      if (offset < 0) {
+        return null
       }
-
-      for (const start of possibleStarts) {
-        if (start <= 0 || start >= rawLength - MIN_VIDEO_SIZE_BYTES) {
-          continue
-        }
-
-        const chunk = rawImageBuffer.subarray(start)
-        if (validateMp4Buffer(chunk)) {
-          resolvedOffset = start
-          videoBuffer = chunk
-          if (start !== candidate && logger?.debug) {
-            logger.debug(
-              `[motion-photo] Interpreted offset ${candidate} as start ${start} from file end for ${storageKey}`,
-            )
-          }
-          break
-        }
-      }
-
-      if (videoBuffer) {
-        break
-      }
-    }
-
-    if (!videoBuffer) {
-      const searchWindowStart = Math.max(0, rawLength - 8 * 1024 * 1024)
-      let cursor = rawImageBuffer.indexOf(MP4_FTYP, searchWindowStart)
-      while (cursor !== -1) {
-        const potentialStart = cursor - 4
-        if (
-          potentialStart > 0 &&
-          potentialStart < rawLength - MIN_VIDEO_SIZE_BYTES
-        ) {
-          const chunk = rawImageBuffer.subarray(potentialStart)
-          if (validateMp4Buffer(chunk)) {
-            resolvedOffset = potentialStart
-            videoBuffer = chunk
-            logger?.info(
-              `[motion-photo] Located MP4 via fallback scan at offset ${potentialStart} for ${storageKey}`,
-            )
-            break
-          }
-        }
-        cursor = rawImageBuffer.indexOf(MP4_FTYP, cursor + 1)
-      }
-    }
-
-    if (!videoBuffer || resolvedOffset === null) {
-      logger?.warn(
-        `[motion-photo] Unable to extract MP4 after trying offsets ${candidateList.join(', ') || 'none'} for ${storageKey}`,
+      logger?.info(
+        `[motion-photo] Detected Motion Photo via ftyp scan for ${storageKey} at offset ${offset}`,
       )
-      return null
-    }
-
-    // todo: consider storing in a dedicated subfolder
-    // const targetKey = `motion-videos/${photoId}.mp4`
-    const targetKey = `${photoId}.mp4`
-    let storedObject
-    try {
-      storedObject = await storageProvider.create(
-        targetKey,
-        videoBuffer,
-        'video/mp4',
+      return {
+        isMotionPhoto: true,
+        videoOffset: offset,
+        presentationTimestampUs: presentationTimestampUs ?? undefined,
+      }
+    } else {
+      // 有 XMP 标记时，用 findVideoOffset 验证嵌入视频确实存在
+      const offset = findVideoOffset(rawImageBuffer)
+      if (offset < 0) {
+        logger?.warn(
+          `[motion-photo] XMP indicates Motion Photo but no valid MP4 found for ${storageKey}`,
+        )
+        return null
+      }
+      logger?.success(
+        `[motion-photo] Detected Motion Photo for ${storageKey}, video will be extracted client-side`,
       )
-    } catch (error) {
-      logger?.error(
-        `[motion-photo] Failed to persist extracted video for ${storageKey}`,
-        error,
-      )
-      return null
-    }
-
-    const livePhotoVideoKey = storedObject.key || targetKey
-    const livePhotoVideoUrl = storageProvider.getPublicUrl(livePhotoVideoKey)
-
-    logger?.success(
-      `[motion-photo] Extracted Motion Photo video for ${storageKey} at offset ${resolvedOffset}, saved as ${livePhotoVideoKey}`,
-    )
-
-    return {
-      isMotionPhoto: true,
-      livePhotoVideoKey,
-      livePhotoVideoUrl,
-      offset: resolvedOffset,
-      presentationTimestampUs: presentationTimestampUs ?? undefined,
+      return {
+        isMotionPhoto: true,
+        videoOffset: offset,
+        presentationTimestampUs: presentationTimestampUs ?? undefined,
+      }
     }
   } catch (error) {
     logger?.error(

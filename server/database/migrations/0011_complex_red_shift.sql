@@ -1,0 +1,1 @@
+ALTER TABLE `photos` ADD `motion_photo_video_offset` integer;

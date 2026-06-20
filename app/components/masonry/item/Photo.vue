@@ -28,7 +28,7 @@ const isVideoPlaying = ref(false)
 const isVideoLoaded = ref(false)
 const videoBlob = ref<Blob | null>(null)
 const videoBlobUrl = ref<string | null>(null)
-const { convertMovToMp4, getProcessingState } = useLivePhotoProcessor()
+const { convertMovToMp4, extractVideoFromMotionPhoto, getProcessingState } = useLivePhotoProcessor()
 
 const isTouching = ref(false)
 const touchCount = ref(0)
@@ -89,7 +89,7 @@ const handleMouseEnter = async () => {
 
   isHovering.value = true
 
-  if (!props.photo.isLivePhoto || !props.photo.livePhotoVideoUrl) return
+  if (!props.photo.isLivePhoto) return
 
   // 如果视频已准备好，立即播放
   if (videoBlob.value && videoBlobUrl.value && isVideoLoaded.value) {
@@ -305,19 +305,25 @@ const handleClick = (event: Event) => {
 
 // 智能LivePhoto处理：基于可见性和用户行为
 const processLivePhotoWhenVisible = async () => {
-  if (
-    !props.photo.isLivePhoto ||
-    !props.photo.livePhotoVideoUrl ||
-    !isVisible.value
-  )
-    return
+  if (!props.photo.isLivePhoto || !isVisible.value) return
 
   try {
-    // 使用优化的转换函数，支持重试和缓存
-    const blob = await convertMovToMp4(
-      props.photo.livePhotoVideoUrl,
-      props.photo.id,
-    )
+    let blob: Blob | null = null
+
+    if (props.photo.livePhotoVideoUrl) {
+      // Apple Live Photo: 独立 MOV 文件
+      blob = await convertMovToMp4(
+        props.photo.livePhotoVideoUrl,
+        props.photo.id,
+      )
+    } else if (props.photo.storageKey) {
+      // Motion Photo: 从原图中提取内嵌视频
+      blob = await extractVideoFromMotionPhoto(
+        `/image/${props.photo.storageKey}`,
+        props.photo.id,
+        props.photo.motionPhotoVideoOffset,
+      )
+    }
 
     if (blob) {
       videoBlob.value = blob
