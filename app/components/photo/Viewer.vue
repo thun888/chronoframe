@@ -141,10 +141,6 @@ watch(
       document.body.style.overflow = ''
     } else {
       document.body.style.overflow = 'hidden'
-      // Process current LivePhoto when viewer opens
-      nextTick(() => {
-        processCurrentLivePhoto()
-      })
     }
   },
   { immediate: true },
@@ -174,11 +170,6 @@ watch(
       clearTimeout(longPressTimer.value)
       longPressTimer.value = null
     }
-
-    // Process new current LivePhoto
-    nextTick(() => {
-      processCurrentLivePhoto()
-    })
   },
 )
 
@@ -312,13 +303,16 @@ const stopLivePhotoVideo = () => {
   isLivePhotoPlaying.value = false
 }
 
-const handleLivePhotoMouseEnter = () => {
+const handleLivePhotoMouseEnter = async () => {
   if (
     !isMobile.value &&
-    currentPhoto.value?.isLivePhoto &&
-    livePhotoVideoBlobUrl.value
+    currentPhoto.value?.isLivePhoto
   ) {
     isLivePhotoHovering.value = true
+    // 如果视频还没提取，先提取
+    if (!livePhotoVideoBlobUrl.value) {
+      await processCurrentLivePhoto()
+    }
     playLivePhotoVideo()
   }
 }
@@ -353,14 +347,18 @@ const handleLivePhotoTouchStart = (event: TouchEvent) => {
         event.preventDefault()
         isLivePhotoTouching.value = true
 
-        // Set a 500ms timer before starting playback
-        longPressTimer.value = setTimeout(() => {
+        // Set a 350ms timer before starting playback
+        longPressTimer.value = setTimeout(async () => {
           // Double check: only play if still single touch and touching
           if (
             isLivePhotoTouching.value &&
             touchCount.value === 1 &&
             !isImageZoomed.value
           ) {
+            // 如果视频还没提取，先提取
+            if (!livePhotoVideoBlobUrl.value) {
+              await processCurrentLivePhoto()
+            }
             playLivePhotoVideo()
           }
         }, 350)
