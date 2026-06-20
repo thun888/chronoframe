@@ -147,17 +147,19 @@ export class S3StorageProvider implements StorageProvider {
 
   getPublicUrl(key: string): string {
     const { cdnUrl, bucket, region, endpoint } = this.config
+    // 确保 key 没有前导斜杠，避免与基础 URL 拼接时出现双斜杠
+    const cleanKey = key.replace(/^\/+/, '')
 
     // CDN URL
     if (cdnUrl) {
-      return `${cdnUrl.replace(/\/$/, '')}/${key}`
+      return `${cdnUrl.replace(/\/$/, '')}/${cleanKey}`
     }
 
     // Default AWS S3 endpoint
     if (!endpoint) {
-      return `https://${bucket}.s3.${region}.amazonaws.com/${key}`
+      return `https://${bucket}.s3.${region}.amazonaws.com/${cleanKey}`
     } else if (endpoint.includes('amazonaws.com')) {
-      return `https://${bucket}.s3.${region}.amazonaws.com/${key}`
+      return `https://${bucket}.s3.${region}.amazonaws.com/${cleanKey}`
     }
 
     // Alibaba Cloud OSS
@@ -168,11 +170,11 @@ export class S3StorageProvider implements StorageProvider {
       }
       const protocol = baseUrl.split('//')[0]
       const remainder = baseUrl.split('//')[1]
-      return `${protocol}//${bucket}.${remainder}/${key}`
+      return `${protocol}//${bucket}.${remainder}/${cleanKey}`
     }
 
     // Custom endpoint
-    return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${cleanKey}`
   }
 
   async getSignedUrl(
