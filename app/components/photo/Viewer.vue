@@ -258,10 +258,10 @@ const processCurrentLivePhoto = async () => {
     if (photo.livePhotoVideoUrl) {
       // Apple Live Photo: 独立 MOV 文件
       blob = await convertMovToMp4(photo.livePhotoVideoUrl, photo.id)
-    } else if (photo.storageKey) {
+    } else if (photo.originalUrl) {
       // Motion Photo: 从原图中提取内嵌视频
       blob = await extractVideoFromMotionPhoto(
-        `/image/${photo.storageKey}`,
+        photo.originalUrl,
         photo.id,
         photo.motionPhotoVideoOffset,
       )

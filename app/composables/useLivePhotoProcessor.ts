@@ -269,7 +269,7 @@ export const useLivePhotoProcessor = () => {
 
   /**
    * 从 Motion Photo 原图中提取内嵌视频
-   * @param imageUrl 原图 URL（如 /image/{storageKey}）
+   * @param imageUrl 原图 URL（如 originalUrl）
    * @param photoId 照片 ID
    * @param videoOffset 可选，后端预计算的视频偏移量，传入时跳过扫描
    */
@@ -521,9 +521,9 @@ export const useLivePhotoProcessor = () => {
         batch.map((photo) => {
           if (photo.livePhotoVideoUrl) {
             return convertMovToMp4(photo.livePhotoVideoUrl, photo.id)
-          } else if (photo.storageKey) {
+          } else if (photo.originalUrl) {
             return extractVideoFromMotionPhoto(
-              `/image/${photo.storageKey}`,
+              photo.originalUrl,
               photo.id,
               photo.motionPhotoVideoOffset,
             )

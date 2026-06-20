@@ -316,10 +316,10 @@ const processLivePhotoWhenVisible = async () => {
         props.photo.livePhotoVideoUrl,
         props.photo.id,
       )
-    } else if (props.photo.storageKey) {
+    } else if (props.photo.originalUrl) {
       // Motion Photo: 从原图中提取内嵌视频
       blob = await extractVideoFromMotionPhoto(
-        `/image/${props.photo.storageKey}`,
+        props.photo.originalUrl,
         props.photo.id,
         props.photo.motionPhotoVideoOffset,
       )
