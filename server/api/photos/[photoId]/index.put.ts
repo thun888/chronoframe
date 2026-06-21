@@ -9,6 +9,8 @@ import { extractExifData } from '~~/server/services/image/exif'
 import { tables, useDB } from '~~/server/utils/db'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
+// 仅在需要文件更新时才导入这些模块
+
 const paramsSchema = z.object({
   photoId: z.string().min(1),
 })
@@ -85,16 +87,6 @@ export default eventHandler(async (event) => {
     })
   }
 
-  const { storageProvider } = useStorageProvider(event)
-  const originalBuffer = await storageProvider.get(photo.storageKey)
-
-  if (!originalBuffer) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: t('dashboard.photos.messages.photoFileMissing'),
-    })
-  }
-
   const normalizedTitle =
     payload.title !== undefined ? payload.title.trim() : undefined
   const normalizedDescription =
@@ -105,33 +97,47 @@ export default eventHandler(async (event) => {
     longitude: number
   } | null = null
 
-  const exifUpdates: Record<string, any> = {}
+  // 判断是否需要更新文件（只有 location 需要写入 EXIF）
+  const needsFileUpdate = payload.location !== undefined
 
-  if (normalizedTitle !== undefined) {
-    const titleValue = normalizedTitle.length > 0 ? normalizedTitle : null
-    exifUpdates.Title = titleValue
-    exifUpdates.XPTitle = titleValue
-  }
+  if (needsFileUpdate) {
+    // 慢速路径：需要写入 GPS 数据到文件
+    const { storageProvider } = useStorageProvider(event)
+    const originalBuffer = await storageProvider.get(photo.storageKey)
 
-  if (normalizedDescription !== undefined) {
-    const descriptionValue =
-      normalizedDescription.length > 0 ? normalizedDescription : null
-    exifUpdates.Description = descriptionValue
-    exifUpdates.ImageDescription = descriptionValue
-    exifUpdates.CaptionAbstract = descriptionValue
-    exifUpdates.XPComment = descriptionValue
-    exifUpdates.UserComment = descriptionValue
-  }
+    if (!originalBuffer) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: t('dashboard.photos.messages.photoFileMissing'),
+      })
+    }
 
-  if (normalizedTags !== undefined) {
-    const tagsValue = normalizedTags.length > 0 ? normalizedTags : null
-    exifUpdates.Subject = tagsValue
-    exifUpdates.Keywords = tagsValue
-    exifUpdates.XPKeywords =
-      normalizedTags.length > 0 ? normalizedTags.join('; ') : null
-  }
+    const exifUpdates: Record<string, any> = {}
 
-  if (payload.location !== undefined) {
+    if (normalizedTitle !== undefined) {
+      const titleValue = normalizedTitle.length > 0 ? normalizedTitle : null
+      exifUpdates.Title = titleValue
+      exifUpdates.XPTitle = titleValue
+    }
+
+    if (normalizedDescription !== undefined) {
+      const descriptionValue =
+        normalizedDescription.length > 0 ? normalizedDescription : null
+      exifUpdates.Description = descriptionValue
+      exifUpdates.ImageDescription = descriptionValue
+      exifUpdates.CaptionAbstract = descriptionValue
+      exifUpdates.XPComment = descriptionValue
+      exifUpdates.UserComment = descriptionValue
+    }
+
+    if (normalizedTags !== undefined) {
+      const tagsValue = normalizedTags.length > 0 ? normalizedTags : null
+      exifUpdates.Subject = tagsValue
+      exifUpdates.Keywords = tagsValue
+      exifUpdates.XPKeywords =
+        normalizedTags.length > 0 ? normalizedTags.join('; ') : null
+    }
+
     if (payload.location) {
       const { latitude, longitude } = payload.location
       const latAbs = Math.abs(latitude)
@@ -141,47 +147,117 @@ export default eventHandler(async (event) => {
       exifUpdates.GPSLongitude = lonAbs
       exifUpdates.GPSLongitudeRef = longitude >= 0 ? 'E' : 'W'
       exifUpdates.GPSPosition = `${latitude} ${longitude}`
-    } else {
+      pendingReverseGeocode = { latitude, longitude }
+    } else if (payload.location === null) {
       exifUpdates.GPSLatitude = null
       exifUpdates.GPSLatitudeRef = null
       exifUpdates.GPSLongitude = null
       exifUpdates.GPSLongitudeRef = null
       exifUpdates.GPSPosition = null
     }
-  }
 
-  if (payload.rating !== undefined) {
-    exifUpdates.Rating = payload.rating !== null ? payload.rating : null
-  }
-
-  const tempRoot = tmpdir()
-  await mkdir(tempRoot, { recursive: true })
-  const tempDir = await mkdtemp(path.join(tempRoot, 'cframe-edit-'))
-  const ext = path.extname(photo.storageKey) || '.jpg'
-  const tempFile = path.join(tempDir, `edited${ext}`)
-
-  try {
-    await writeFile(tempFile, originalBuffer)
-
-    if (Object.keys(exifUpdates).length > 0) {
-      await exiftool.write(tempFile, exifUpdates, ['-overwrite_original'])
+    if (payload.rating !== undefined) {
+      exifUpdates.Rating = payload.rating !== null ? payload.rating : null
     }
 
-    const updatedBuffer = await readFile(tempFile)
-    const prefix =
-      storageProvider.config && 'prefix' in storageProvider.config
-        ? storageProvider.config.prefix
-        : ''
-    await storageProvider.create(
-      photo.storageKey.replace(prefix || '', ''),
-      updatedBuffer,
-    )
+    const tempRoot = tmpdir()
+    await mkdir(tempRoot, { recursive: true })
+    const tempDir = await mkdtemp(path.join(tempRoot, 'cframe-edit-'))
+    const ext = path.extname(photo.storageKey) || '.jpg'
+    const tempFile = path.join(tempDir, `edited${ext}`)
 
-    const exifData = await extractExifData(updatedBuffer)
+    try {
+      await writeFile(tempFile, originalBuffer)
 
+      if (Object.keys(exifUpdates).length > 0) {
+        await exiftool.write(tempFile, exifUpdates, ['-overwrite_original'])
+      }
+
+      const updatedBuffer = await readFile(tempFile)
+      const prefix =
+        storageProvider.config && 'prefix' in storageProvider.config
+          ? storageProvider.config.prefix
+          : ''
+      await storageProvider.create(
+        photo.storageKey.replace(prefix || '', ''),
+        updatedBuffer,
+      )
+
+      const exifData = await extractExifData(updatedBuffer)
+
+      const updateData: Record<string, any> = {
+        exif: exifData,
+        fileSize: updatedBuffer.length,
+        lastModified: new Date().toISOString(),
+      }
+
+      if (normalizedTitle !== undefined) {
+        updateData.title = normalizedTitle || null
+      }
+
+      if (normalizedDescription !== undefined) {
+        updateData.description = normalizedDescription || null
+      }
+
+      if (normalizedTags !== undefined) {
+        updateData.tags = normalizedTags
+      }
+
+      updateData.latitude = payload.location?.latitude ?? null
+      updateData.longitude = payload.location?.longitude ?? null
+      updateData.country = null
+      updateData.city = null
+      updateData.locationName = null
+
+      await db
+        .update(tables.photos)
+        .set(updateData)
+        .where(eq(tables.photos.id, photoId))
+
+      const updatedPhoto = await db
+        .select()
+        .from(tables.photos)
+        .where(eq(tables.photos.id, photoId))
+        .get()
+
+      if (pendingReverseGeocode) {
+        const workerPool = globalThis.__workerPool
+        if (workerPool) {
+          try {
+            await workerPool.addTask(
+              {
+                type: 'photo-reverse-geocoding',
+                photoId,
+                latitude: pendingReverseGeocode.latitude,
+                longitude: pendingReverseGeocode.longitude,
+              },
+              {
+                priority: 1,
+              },
+            )
+          } catch (taskError) {
+            logger.location.warn(
+              `Failed to enqueue reverse geocoding for photo ${photoId}:`,
+              taskError,
+            )
+          }
+        } else {
+          logger.location.warn(
+            `Worker pool not initialized, skipping reverse geocoding enqueue for photo ${photoId}`,
+          )
+        }
+      }
+
+      return {
+        success: true,
+        photo: updatedPhoto,
+      }
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  } else {
+    // 快速路径：只更新数据库（标题/描述/标签/评分）
     const updateData: Record<string, any> = {
-      exif: exifData,
-      fileSize: updatedBuffer.length,
       lastModified: new Date().toISOString(),
     }
 
@@ -197,24 +273,8 @@ export default eventHandler(async (event) => {
       updateData.tags = normalizedTags
     }
 
-    if (payload.location !== undefined) {
-      if (payload.location) {
-        updateData.latitude = payload.location.latitude
-        updateData.longitude = payload.location.longitude
-        updateData.country = null
-        updateData.city = null
-        updateData.locationName = null
-        pendingReverseGeocode = {
-          latitude: payload.location.latitude,
-          longitude: payload.location.longitude,
-        }
-      } else {
-        updateData.latitude = null
-        updateData.longitude = null
-        updateData.country = null
-        updateData.city = null
-        updateData.locationName = null
-      }
+    if (payload.rating !== undefined) {
+      updateData.rating = payload.rating
     }
 
     await db
@@ -228,45 +288,9 @@ export default eventHandler(async (event) => {
       .where(eq(tables.photos.id, photoId))
       .get()
 
-    if (pendingReverseGeocode) {
-      const workerPool = globalThis.__workerPool
-      if (workerPool) {
-        try {
-          await workerPool.addTask(
-            {
-              type: 'photo-reverse-geocoding',
-              photoId,
-              latitude: pendingReverseGeocode.latitude,
-              longitude: pendingReverseGeocode.longitude,
-            },
-            {
-              priority: 1,
-            },
-          )
-        } catch (taskError) {
-          logger.location.warn(
-            `Failed to enqueue reverse geocoding for photo ${photoId}:`,
-            taskError,
-          )
-        }
-      } else {
-        logger.location.warn(
-          `Worker pool not initialized, skipping reverse geocoding enqueue for photo ${photoId}`,
-        )
-      }
-    }
-
     return {
       success: true,
       photo: updatedPhoto,
     }
-  } catch (error) {
-    logger.image.error('Failed to update photo metadata', error)
-    throw createError({
-      statusCode: 500,
-      statusMessage: t('dashboard.photos.messages.metadataUpdateFailed'),
-    })
-  } finally {
-    await rm(tempDir, { recursive: true, force: true })
   }
 })
