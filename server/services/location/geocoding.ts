@@ -186,7 +186,7 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
 
           // 提取城市信息（优先级：district > city > town > county > state > village > hamlet）
           // 适配中国行政区划
-          const city =
+          let city =
             address.district ||
             address.city ||
             address.town ||
@@ -194,6 +194,21 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
             address.state ||
             address.village ||
             address.hamlet
+
+          // 修正中国区级城市名称：如果 city 以 "区" 结尾，从 display_name 中提取市级名称
+          if (city && city.endsWith('区') && data.display_name && address.state) {
+            const cityName = this.extractCityFromDisplayName(
+              data.display_name,
+              city,
+              address.state,
+            )
+            if (cityName) {
+              logger.location.info(
+                `Corrected city from district "${city}" to city "${cityName}"`,
+              )
+              city = cityName
+            }
+          }
 
           // 构建位置名称
           const locationName = data.display_name
@@ -232,6 +247,49 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
     }
 
     this.lastRequestTime = Date.now()
+  }
+
+  /**
+   * 从 display_name 中提取市级名称
+   * 用于修正 Nominatim 返回区级 city 的情况
+   */
+  private extractCityFromDisplayName(
+    displayName: string,
+    district: string,
+    state: string,
+  ): string | null {
+    try {
+      // 按逗号分割 display_name
+      const parts = displayName.split(',').map((part) => part.trim())
+
+      // 找到 district 的位置
+      const districtIndex = parts.findIndex((part) => part === district)
+      if (districtIndex === -1) {
+        return null
+      }
+
+      // 找到 state 的位置
+      const stateIndex = parts.findIndex((part) => part === state)
+      if (stateIndex === -1) {
+        return null
+      }
+
+      // 确保 district 在 state 之前
+      if (districtIndex >= stateIndex) {
+        return null
+      }
+
+      // 提取 district 和 state 之间的部分
+      const betweenParts = parts.slice(districtIndex + 1, stateIndex)
+
+      // 查找以 "市" 结尾的市级名称
+      const cityPart = betweenParts.find((part) => part.endsWith('市'))
+
+      return cityPart || null
+    } catch (error) {
+      logger.location.warn('Failed to extract city from display_name:', error)
+      return null
+    }
   }
 }
 
