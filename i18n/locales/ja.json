@@ -1208,6 +1208,14 @@
         "maxKeys": {
           "label": "最大キー数",
           "description": "S3 リスト操作ごとに返される最大オブジェクト数"
+        },
+        "transformEnabled": {
+          "label": "フォーマット変換を有効化",
+          "description": "有効にすると、サムネイルは「元のURL + サフィックス」を使用し、サーバー側で生成されなくなります"
+        },
+        "transformSuffix": {
+          "label": "フォーマット変換サフィックス",
+          "description": "元のURLに追加するサフィックス。例：Alibaba Cloud OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "local": {
@@ -1222,6 +1230,14 @@
         "prefix": {
           "label": "プレフィックス",
           "description": "ローカルストレージ内の全ファイルのパスプレフィックス"
+        },
+        "transformEnabled": {
+          "label": "フォーマット変換を有効化",
+          "description": "有効にすると、サムネイルは「元のURL + サフィックス」を使用し、サーバー側で生成されなくなります"
+        },
+        "transformSuffix": {
+          "label": "フォーマット変換サフィックス",
+          "description": "元のURLに追加するサフィックス。例：Alibaba Cloud OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "openlist": {
@@ -1264,6 +1280,14 @@
         "cdnUrl": {
           "label": "CDN URL",
           "description": "画像にアクセスするためのカスタム CDN URL"
+        },
+        "transformEnabled": {
+          "label": "フォーマット変換を有効化",
+          "description": "有効にすると、サムネイルは「元のURL + サフィックス」を使用し、サーバー側で生成されなくなります"
+        },
+        "transformSuffix": {
+          "label": "フォーマット変換サフィックス",
+          "description": "元のURLに追加するサフィックス。例：Alibaba Cloud OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "sectionDescription": "デフォルトのストレージ構成と利用可能なストレージプロバイダーを管理します。このページの設定は以降のファイルアップロードにのみ影響します。",

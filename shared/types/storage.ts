@@ -11,6 +11,8 @@ export const s3StorageConfigSchema = z.object({
   secretAccessKey: z.string(),
   forcePathStyle: z.boolean().optional(),
   maxKeys: z.number().optional(),
+  transformEnabled: z.boolean().optional(),
+  transformSuffix: z.string().optional(),
 })
 
 export const localStorageConfigSchema = z.object({
@@ -18,6 +20,8 @@ export const localStorageConfigSchema = z.object({
   basePath: z.string().min(1),
   baseUrl: z.string().optional(),
   prefix: z.string().optional(),
+  transformEnabled: z.boolean().optional(),
+  transformSuffix: z.string().optional(),
 })
 
 export const openListStorageConfigSchema = z.object({
@@ -32,6 +36,8 @@ export const openListStorageConfigSchema = z.object({
   metaEndpoint: z.string().default('/api/fs/get').optional(),
   pathField: z.string().default('path').optional(),
   cdnUrl: z.string().optional(),
+  transformEnabled: z.boolean().optional(),
+  transformSuffix: z.string().optional(),
 })
 
 export const storageConfigSchema = z.discriminatedUnion('provider', [

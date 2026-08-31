@@ -1208,6 +1208,14 @@
         "maxKeys": {
           "label": "最大金鑰數",
           "description": "列舉物件時返回的最大數量"
+        },
+        "transformEnabled": {
+          "label": "啟用格式轉換",
+          "description": "啟用後，縮圖使用「原始連結 + 後綴」，不再由伺服器端產生"
+        },
+        "transformSuffix": {
+          "label": "格式轉換後綴",
+          "description": "附加在原始連結後的後綴，例如阿里雲 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "local": {
@@ -1222,6 +1230,14 @@
         "prefix": {
           "label": "前綴",
           "description": "本地儲存中所有檔案的路徑前綴"
+        },
+        "transformEnabled": {
+          "label": "啟用格式轉換",
+          "description": "啟用後，縮圖使用「原始連結 + 後綴」，不再由伺服器端產生"
+        },
+        "transformSuffix": {
+          "label": "格式轉換後綴",
+          "description": "附加在原始連結後的後綴，例如阿里雲 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "openlist": {
@@ -1264,6 +1280,14 @@
         "cdnUrl": {
           "label": "CDN URL",
           "description": "用於訪問圖像的自訂 CDN URL"
+        },
+        "transformEnabled": {
+          "label": "啟用格式轉換",
+          "description": "啟用後，縮圖使用「原始連結 + 後綴」，不再由伺服器端產生"
+        },
+        "transformSuffix": {
+          "label": "格式轉換後綴",
+          "description": "附加在原始連結後的後綴，例如阿里雲 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "sectionDescription": "管理預設儲存方案與可用儲存提供者。此頁面的設定僅影響後續上傳檔案。",

@@ -6,6 +6,7 @@ import { exiftool } from 'exiftool-vendored'
 import { eq } from 'drizzle-orm'
 
 import { extractExifData } from '~~/server/services/image/exif'
+import { resolveThumbnailUrl } from '~~/server/utils/storageTransform'
 import { tables, useDB } from '~~/server/utils/db'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
@@ -250,13 +251,23 @@ export default eventHandler(async (event) => {
 
       return {
         success: true,
-        photo: updatedPhoto,
+        photo:
+          updatedPhoto === undefined
+            ? updatedPhoto
+            : {
+                ...updatedPhoto,
+                thumbnailUrl: resolveThumbnailUrl(
+                  updatedPhoto,
+                  storageProvider.config,
+                ),
+              },
       }
     } finally {
       await rm(tempDir, { recursive: true, force: true })
     }
   } else {
     // 快速路径：只更新数据库（标题/描述/标签/评分）
+    const { storageProvider } = useStorageProvider(event)
     const updateData: Record<string, any> = {
       lastModified: new Date().toISOString(),
     }
@@ -290,7 +301,16 @@ export default eventHandler(async (event) => {
 
     return {
       success: true,
-      photo: updatedPhoto,
+      photo:
+        updatedPhoto === undefined
+          ? updatedPhoto
+          : {
+              ...updatedPhoto,
+              thumbnailUrl: resolveThumbnailUrl(
+                updatedPhoto,
+                storageProvider.config,
+              ),
+            },
     }
   }
 })

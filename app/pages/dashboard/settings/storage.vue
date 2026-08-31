@@ -213,6 +213,14 @@ const storageFieldsConfig = computed<Record<string, any>>(() => {
           label: $t(`${baseKey}.prefix.label`),
           description: $t(`${baseKey}.prefix.description`),
         },
+        transformEnabled: {
+          label: $t(`${baseKey}.transformEnabled.label`),
+          description: $t(`${baseKey}.transformEnabled.description`),
+        },
+        transformSuffix: {
+          label: $t(`${baseKey}.transformSuffix.label`),
+          description: $t(`${baseKey}.transformSuffix.description`),
+        },
       }
     case 'openlist':
       return {
@@ -257,6 +265,14 @@ const storageFieldsConfig = computed<Record<string, any>>(() => {
           label: $t(`${baseKey}.cdnUrl.label`),
           description: $t(`${baseKey}.cdnUrl.description`),
         },
+        transformEnabled: {
+          label: $t(`${baseKey}.transformEnabled.label`),
+          description: $t(`${baseKey}.transformEnabled.description`),
+        },
+        transformSuffix: {
+          label: $t(`${baseKey}.transformSuffix.label`),
+          description: $t(`${baseKey}.transformSuffix.description`),
+        },
       }
     case 's3':
     default:
@@ -297,6 +313,14 @@ const storageFieldsConfig = computed<Record<string, any>>(() => {
         maxKeys: {
           label: $t(`${baseKey}.maxKeys.label`),
           description: $t(`${baseKey}.maxKeys.description`),
+        },
+        transformEnabled: {
+          label: $t(`${baseKey}.transformEnabled.label`),
+          description: $t(`${baseKey}.transformEnabled.description`),
+        },
+        transformSuffix: {
+          label: $t(`${baseKey}.transformSuffix.label`),
+          description: $t(`${baseKey}.transformSuffix.description`),
         },
       }
   }

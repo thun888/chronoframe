@@ -24,6 +24,7 @@ import { settingsManager } from '../settings/settingsManager'
 import { findLivePhotoVideoForImage } from '../video/livephoto'
 import { processMotionPhotoFromXmp } from '../video/motion-photo'
 import { getStorageManager } from '~~/server/plugins/3.storage'
+import { isStorageTransformActive } from '~~/server/utils/storageTransform'
 
 const EXIF_LOCATION_KEYS = [
   'GPSAltitude',
@@ -317,26 +318,44 @@ export class QueueManager {
           const { imageBuffer, metadata } = processedData
 
           // STEP 3: 生成缩略图
-          await this.updateTaskStage(taskId, 'thumbnail')
-          this.logger.info(`[${taskId}:in-stage] thumbnail generation`)
-          const { thumbnailBuffer, thumbnailHash } =
-            await generateThumbnailAndHash(imageBuffer, this.logger)
+          // 启用储存方格式转换时跳过：不生成、不上传缩略图，链接留空，
+          // 读取时由「原始链接 + 后缀」提供缩略图。
+          let thumbnailKey: string | null = null
+          let thumbnailUrl: string | null = null
+          let thumbnailHash: Uint8Array | null = null
 
-          // 上传缩略图到存储服务
-          const thumbnailObject = await new Promise<any>((resolve, reject) => {
-            setImmediate(async () => {
-              try {
-                const result = await storageProvider.create(
-                  `thumbnails/${photoId}.webp`,
-                  thumbnailBuffer,
-                  'image/webp',
-                )
-                resolve(result)
-              } catch (error) {
-                reject(error)
-              }
-            })
-          })
+          if (isStorageTransformActive(storageProvider.config)) {
+            this.logger.info(
+              `[${taskId}:skip-stage] thumbnail generation (storage transform enabled)`,
+            )
+          } else {
+            await this.updateTaskStage(taskId, 'thumbnail')
+            this.logger.info(`[${taskId}:in-stage] thumbnail generation`)
+            const { thumbnailBuffer, thumbnailHash: generatedHash } =
+              await generateThumbnailAndHash(imageBuffer, this.logger)
+            thumbnailHash = generatedHash
+
+            // 上传缩略图到存储服务
+            const thumbnailObject = await new Promise<any>(
+              (resolve, reject) => {
+                setImmediate(async () => {
+                  try {
+                    const result = await storageProvider.create(
+                      `thumbnails/${photoId}.webp`,
+                      thumbnailBuffer,
+                      'image/webp',
+                    )
+                    resolve(result)
+                  } catch (error) {
+                    reject(error)
+                  }
+                })
+              },
+            )
+
+            thumbnailKey = thumbnailObject.key
+            thumbnailUrl = storageProvider.getPublicUrl(thumbnailObject.key)
+          }
 
           // STEP 4: 提取 EXIF 数据
           await this.updateTaskStage(taskId, 'exif')
@@ -434,7 +453,7 @@ export class QueueManager {
             height: metadata.height,
             aspectRatio: metadata.width / metadata.height,
             storageKey: storageKey,
-            thumbnailKey: thumbnailObject.key,
+            thumbnailKey,
             fileSize: storageObject.size || null,
             lastModified:
               storageObject.lastModified?.toISOString() ||
@@ -442,7 +461,7 @@ export class QueueManager {
             originalUrl: imageBuffers.jpegKey
               ? storageProvider.getPublicUrl(imageBuffers.jpegKey) // 使用 JPEG 版本作为 originalUrl
               : storageProvider.getPublicUrl(storageKey),
-            thumbnailUrl: storageProvider.getPublicUrl(thumbnailObject.key),
+            thumbnailUrl,
             thumbnailHash: thumbnailHash
               ? compressUint8Array(thumbnailHash)
               : null,

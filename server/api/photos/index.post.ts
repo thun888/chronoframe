@@ -2,6 +2,7 @@ import path from 'path'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 import { eq } from 'drizzle-orm'
 import { generateSafePhotoId } from '~~/server/utils/file-utils'
+import { resolveThumbnailUrl } from '~~/server/utils/storageTransform'
 import { settingsManager } from '~~/server/services/settings/settingsManager'
 
 const VIDEO_EXTENSIONS = new Set(['.mov', '.mp4'])
@@ -65,7 +66,9 @@ export default eventHandler(async (event) => {
       ((await settingsManager.get<boolean>(
         'system',
         'upload.duplicateCheck.enabled',
-      )) ?? true) && !skipDuplicateCheck
+      )) ??
+        true) &&
+      !skipDuplicateCheck
     let existingPhoto = null
 
     if (duplicateCheckEnabled) {
@@ -94,6 +97,13 @@ export default eventHandler(async (event) => {
       }
 
       if (existingPhoto) {
+        existingPhoto = {
+          ...existingPhoto,
+          thumbnailUrl: resolveThumbnailUrl(
+            existingPhoto,
+            storageProvider.config,
+          ),
+        }
         const checkMode =
           (await settingsManager.get<'warn' | 'block' | 'skip'>(
             'system',

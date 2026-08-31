@@ -1282,6 +1282,14 @@
         "maxKeys": {
           "label": "最大密钥数",
           "description": "每个请求检索的最大密钥数"
+        },
+        "transformEnabled": {
+          "label": "启用格式转换",
+          "description": "启用后，缩略图使用「原始链接 + 后缀」，不再由服务端生成"
+        },
+        "transformSuffix": {
+          "label": "格式转换后缀",
+          "description": "附加在原始链接后的后缀，例如阿里云 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "local": {
@@ -1296,6 +1304,14 @@
         "prefix": {
           "label": "存储前缀",
           "description": "用于在存储中组织照片的前缀路径"
+        },
+        "transformEnabled": {
+          "label": "启用格式转换",
+          "description": "启用后，缩略图使用「原始链接 + 后缀」，不再由服务端生成"
+        },
+        "transformSuffix": {
+          "label": "格式转换后缀",
+          "description": "附加在原始链接后的后缀，例如阿里云 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "openlist": {
@@ -1338,6 +1354,14 @@
         "cdnUrl": {
           "label": "CDN URL",
           "description": "用于访问图像的自定义 CDN URL"
+        },
+        "transformEnabled": {
+          "label": "启用格式转换",
+          "description": "启用后，缩略图使用「原始链接 + 后缀」，不再由服务端生成"
+        },
+        "transformSuffix": {
+          "label": "格式转换后缀",
+          "description": "附加在原始链接后的后缀，例如阿里云 OSS：?x-oss-process=image/resize,w_600"
         }
       },
       "sectionDescription": "管理默认存储方案与可用存储提供者。此页面的设置仅影响后续上传文件。",

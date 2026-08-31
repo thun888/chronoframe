@@ -1282,6 +1282,14 @@
         "maxKeys": {
           "label": "Max Keys",
           "description": "Maximum number of keys to retrieve per request"
+        },
+        "transformEnabled": {
+          "label": "Enable Transform",
+          "description": "When enabled, thumbnails use the original URL plus a suffix instead of being generated server-side"
+        },
+        "transformSuffix": {
+          "label": "Transform Suffix",
+          "description": "Suffix appended to the original URL, e.g. Aliyun OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "local": {
@@ -1296,6 +1304,14 @@
         "prefix": {
           "label": "Storage Prefix",
           "description": "Prefix path for organizing photos in storage"
+        },
+        "transformEnabled": {
+          "label": "Enable Transform",
+          "description": "When enabled, thumbnails use the original URL plus a suffix instead of being generated server-side"
+        },
+        "transformSuffix": {
+          "label": "Transform Suffix",
+          "description": "Suffix appended to the original URL, e.g. Aliyun OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "openlist": {
@@ -1338,6 +1354,14 @@
         "cdnUrl": {
           "label": "CDN URL",
           "description": "Custom CDN URL for accessing images"
+        },
+        "transformEnabled": {
+          "label": "Enable Transform",
+          "description": "When enabled, thumbnails use the original URL plus a suffix instead of being generated server-side"
+        },
+        "transformSuffix": {
+          "label": "Transform Suffix",
+          "description": "Suffix appended to the original URL, e.g. Aliyun OSS: ?x-oss-process=image/resize,w_600"
         }
       },
       "sectionDescription": "Manage the default storage scheme and available storage providers. Settings on this page only affect subsequent file uploads.",

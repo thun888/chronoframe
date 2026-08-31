@@ -1,7 +1,10 @@
 import { desc, notInArray } from 'drizzle-orm'
+import { applyThumbnailTransform } from '~~/server/utils/storageTransform'
+import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
-export default eventHandler(async (_event) => {
+export default eventHandler(async (event) => {
   const db = useDB()
+  const { storageProvider } = useStorageProvider(event)
 
   // 获取所有隐藏相册中的照片ID
   const hiddenAlbumPhotos = db
@@ -17,18 +20,24 @@ export default eventHandler(async (_event) => {
 
   // 查询所有照片，排除隐藏相册中的照片
   if (hiddenPhotoIds.length > 0) {
-    return db
-      .select()
-      .from(tables.photos)
-      .where(notInArray(tables.photos.id, hiddenPhotoIds))
-      .orderBy(desc(tables.photos.dateTaken))
-      .all()
+    return applyThumbnailTransform(
+      await db
+        .select()
+        .from(tables.photos)
+        .where(notInArray(tables.photos.id, hiddenPhotoIds))
+        .orderBy(desc(tables.photos.dateTaken))
+        .all(),
+      storageProvider.config,
+    )
   }
 
   // 如果没有隐藏的照片，直接返回所有照片
-  return db
-    .select()
-    .from(tables.photos)
-    .orderBy(desc(tables.photos.dateTaken))
-    .all()
+  return applyThumbnailTransform(
+    await db
+      .select()
+      .from(tables.photos)
+      .orderBy(desc(tables.photos.dateTaken))
+      .all(),
+    storageProvider.config,
+  )
 })

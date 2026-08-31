@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { generateSafePhotoId } from '~~/server/utils/file-utils'
+import { resolveThumbnailUrl } from '~~/server/utils/storageTransform'
 
 /**
  * 检查照片是否已存在
@@ -8,6 +9,7 @@ import { generateSafePhotoId } from '~~/server/utils/file-utils'
  */
 export default defineEventHandler(async (event) => {
   await requireUserSession(event)
+  const { storageProvider } = useStorageProvider(event)
 
   const t = await useTranslation(event)
 
@@ -40,7 +42,6 @@ export default defineEventHandler(async (event) => {
     if (fileNames && fileNames.length > 0) {
       for (const fileName of fileNames) {
         // 生成 photoId（与上传时的逻辑相同）
-        const { storageProvider } = useStorageProvider(event)
         const storageKey = `${(storageProvider.config?.prefix || '').replace(/\/+$/, '')}/${fileName}`
         const photoId = generateSafePhotoId(storageKey)
 
@@ -105,7 +106,18 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      results,
+      results: results.map((r) => ({
+        ...r,
+        photo: r.photo
+          ? {
+              ...r.photo,
+              thumbnailUrl: resolveThumbnailUrl(
+                r.photo,
+                storageProvider.config,
+              ),
+            }
+          : r.photo,
+      })),
       duplicatesFound,
       summary: {
         title: t('upload.success.check.title'),

@@ -1,7 +1,10 @@
 import { eq } from 'drizzle-orm'
+import { resolveThumbnailUrl } from '~~/server/utils/storageTransform'
+import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
 export default eventHandler(async (event) => {
   await requireUserSession(event)
+  const { storageProvider } = useStorageProvider(event)
 
   const photoId = getRouterParam(event, 'photoId')
 
@@ -38,7 +41,7 @@ export default eventHandler(async (event) => {
       livePhotoVideoUrl: photo.livePhotoVideoUrl,
       motionPhotoVideoOffset: photo.motionPhotoVideoOffset,
       originalUrl: photo.originalUrl,
-      thumbnailUrl: photo.thumbnailUrl,
+      thumbnailUrl: resolveThumbnailUrl(photo, storageProvider.config),
     }
   } catch (error) {
     logger.chrono.error('Failed to get photo details:', error)

@@ -1,5 +1,7 @@
 import { asc, getTableColumns } from 'drizzle-orm'
 import z from 'zod'
+import { applyThumbnailTransform } from '~~/server/utils/storageTransform'
+import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
 export default eventHandler(async (event) => {
   const { albumId } = await getValidatedRouterParams(
@@ -13,6 +15,7 @@ export default eventHandler(async (event) => {
   )
 
   const db = useDB()
+  const { storageProvider } = useStorageProvider(event)
 
   const album = db
     .select()
@@ -64,6 +67,6 @@ export default eventHandler(async (event) => {
 
   return {
     ...album,
-    photos,
+    photos: applyThumbnailTransform(photos, storageProvider.config),
   }
 })
