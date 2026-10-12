@@ -1,6 +1,11 @@
 <script lang="ts" setup>
 import type { Album, Photo } from '~~/server/utils/db'
 import type { FormSubmitEvent, FormError } from '@nuxt/ui'
+import {
+  ALBUM_PASSWORD_MAX_LENGTH,
+  ALBUM_PASSWORD_MIN_LENGTH,
+  isValidAlbumPasswordLength,
+} from '~~/shared/utils/album-password'
 
 definePageMeta({
   layout: 'dashboard',
@@ -11,6 +16,7 @@ useHead({
 })
 
 interface AlbumItem extends Album {
+  hasPassword?: boolean
   photoCount?: number
   photoIds?: string[]
   coverPhoto?: Photo | null
@@ -20,7 +26,25 @@ interface AlbumFormState {
   title: string
   description: string
   isHidden: boolean
+  password: string
+  passwordEnabled: boolean
 }
+
+const { data: currentStorageProvider } = await useFetch<{
+  namespace: string
+  key: string
+  value: SettingValue
+}>('/api/system/settings/storage/provider')
+const { data: availableStorage } = await useFetch<SettingStorageProvider[]>(
+  '/api/system/settings/storage-config',
+)
+
+const isCurrentStorageNonLocal = computed(() => {
+  const provider = availableStorage.value?.find(
+    (item) => item.id === currentStorageProvider.value?.value,
+  )
+  return Boolean(provider && provider.provider !== 'local')
+})
 
 const albums = ref<AlbumItem[]>([])
 const isLoadingAlbums = ref(false)
@@ -37,6 +61,8 @@ const formData = reactive<AlbumFormState>({
   title: '',
   description: '',
   isHidden: false,
+  password: '',
+  passwordEnabled: false,
 })
 
 const formRef = ref()
@@ -71,6 +97,32 @@ const validateForm = (state: any): FormError[] => {
       message: $t('dashboard.albums.form.titleRequired'),
     })
   }
+  if (state.passwordEnabled) {
+    if (!state.password) {
+      if (!currentAlbum.value?.hasPassword) {
+        errors.push({
+          name: 'password',
+          message: $t('dashboard.albums.form.passwordRequired'),
+        })
+      }
+    } else if (!isValidAlbumPasswordLength(state.password)) {
+      if (state.password.length < ALBUM_PASSWORD_MIN_LENGTH) {
+        errors.push({
+          name: 'password',
+          message: $t('dashboard.albums.form.passwordTooShort', {
+            min: ALBUM_PASSWORD_MIN_LENGTH,
+          }),
+        })
+      } else {
+        errors.push({
+          name: 'password',
+          message: $t('dashboard.albums.form.passwordTooLong', {
+            max: ALBUM_PASSWORD_MAX_LENGTH,
+          }),
+        })
+      }
+    }
+  }
   return errors
 }
 
@@ -84,9 +136,10 @@ const loadAlbums = async () => {
     }))
 
     for (const album of albums.value) {
-      if (album.coverPhotoId && allPhotos.value.length > 0) {
+      const displayCoverPhotoId = album.coverPhotoId || album.photoIds?.[0]
+      if (displayCoverPhotoId && allPhotos.value.length > 0) {
         const coverPhoto = allPhotos.value.find(
-          (p) => p.id === album.coverPhotoId,
+          (p) => p.id === displayCoverPhotoId,
         )
         if (coverPhoto) {
           album.coverPhoto = coverPhoto
@@ -121,6 +174,8 @@ const openCreateSlideover = () => {
   formData.title = ''
   formData.description = ''
   formData.isHidden = false
+  formData.password = ''
+  formData.passwordEnabled = false
   selectedPhotoIds.value = []
   coverPhotoId.value = ''
   formRef.value?.clear()
@@ -134,6 +189,8 @@ const openEditSlideover = async (album: AlbumItem) => {
     formData.title = album.title
     formData.description = album.description || ''
     formData.isHidden = album.isHidden || false
+    formData.password = ''
+    formData.passwordEnabled = Boolean(album.hasPassword)
     selectedPhotoIds.value = (albumDetail.photos || []).map((p: Photo) => p.id)
     coverPhotoId.value = album.coverPhotoId || ''
     formRef.value?.clear()
@@ -164,6 +221,9 @@ const onFormSubmit = async (event: FormSubmitEvent<AlbumFormState>) => {
           coverPhotoId: coverPhotoId.value || undefined,
           photoIds: selectedPhotoIds.value,
           isHidden: event.data.isHidden,
+          password: event.data.passwordEnabled
+            ? event.data.password || undefined
+            : '',
         },
       })
 
@@ -182,6 +242,9 @@ const onFormSubmit = async (event: FormSubmitEvent<AlbumFormState>) => {
           coverPhotoId: coverPhotoId.value || undefined,
           photoIds: selectedPhotoIds.value,
           isHidden: event.data.isHidden,
+          password: event.data.passwordEnabled
+            ? event.data.password
+            : undefined,
         },
       })
 
@@ -231,6 +294,49 @@ const deleteAlbum = async () => {
   }
 }
 
+// Move an album one step up (-1) or down (+1) and persist the new order.
+// Optimistic update: revert and toast on failure. Only one reorder request
+// runs at a time so a failed revert cannot clobber a later move.
+const isReorderingAlbums = ref(false)
+const moveAlbum = async (index: number, direction: -1 | 1) => {
+  if (isReorderingAlbums.value) return
+  const target = index + direction
+  if (target < 0 || target >= albums.value.length) return
+  isReorderingAlbums.value = true
+
+  const previous = albums.value
+  const next = [...albums.value]
+  ;[next[index], next[target]] = [next[target]!, next[index]!]
+  albums.value = next
+
+  try {
+    await $fetch('/api/albums/reorder', {
+      method: 'PUT',
+      body: { albumIds: next.map((album) => album.id) },
+    })
+  } catch (error) {
+    console.error('Failed to reorder albums:', error)
+    albums.value = previous
+    useToast().add({
+      title: $t('dashboard.albums.messages.reorderError'),
+      color: 'error',
+    })
+  } finally {
+    isReorderingAlbums.value = false
+  }
+}
+
+// Move a selected photo one step up (-1) or down (+1) within the album.
+// Persisted on save via PUT /api/albums/:id (order = selectedPhotoIds order).
+const movePhoto = (index: number, direction: -1 | 1) => {
+  const target = index + direction
+  if (target < 0 || target >= selectedPhotoIds.value.length) return
+
+  const next = [...selectedPhotoIds.value]
+  ;[next[index], next[target]] = [next[target]!, next[index]!]
+  selectedPhotoIds.value = next
+}
+
 const togglePhotoSelection = (photoId: string) => {
   const index = selectedPhotoIds.value.indexOf(photoId)
   if (index > -1) {
@@ -243,6 +349,15 @@ const togglePhotoSelection = (photoId: string) => {
   }
 }
 
+const selectorRangeSelection = useShiftRangeSelection()
+
+watch(
+  () => draftSelectedPhotoIds.value.length === 0,
+  (isEmpty) => {
+    if (isEmpty) selectorRangeSelection.resetAnchor()
+  },
+)
+
 const openPhotoSelector = () => {
   draftSelectedPhotoIds.value = [...selectedPhotoIds.value]
   draftCoverPhotoId.value =
@@ -250,6 +365,7 @@ const openPhotoSelector = () => {
       ? coverPhotoId.value
       : ''
   isSelectorFilterOpen.value = false
+  selectorRangeSelection.resetAnchor()
   isPhotoSelectorOpen.value = true
 }
 
@@ -268,17 +384,31 @@ const confirmPhotoSelection = () => {
   isPhotoSelectorOpen.value = false
 }
 
-const toggleDraftPhotoSelection = (photoId: string) => {
-  const index = draftSelectedPhotoIds.value.indexOf(photoId)
-  if (index > -1) {
-    draftSelectedPhotoIds.value.splice(index, 1)
-    if (draftCoverPhotoId.value === photoId) {
-      draftCoverPhotoId.value = ''
+const toggleDraftPhotoSelection = (photoId: string, event: MouseEvent) => {
+  const shouldSelect = !draftSelectedPhotoIds.value.includes(photoId)
+  const rangeIds = selectorRangeSelection.getRangeIds(
+    selectorFilteredPhotos.value.map((photo) => photo.id),
+    photoId,
+    event.shiftKey,
+  )
+
+  if (shouldSelect) {
+    const selected = new Set(draftSelectedPhotoIds.value)
+    for (const id of rangeIds) {
+      if (!selected.has(id)) {
+        draftSelectedPhotoIds.value.push(id)
+      }
     }
     return
   }
 
-  draftSelectedPhotoIds.value.push(photoId)
+  const removed = new Set(rangeIds)
+  draftSelectedPhotoIds.value = draftSelectedPhotoIds.value.filter(
+    (id) => !removed.has(id),
+  )
+  if (removed.has(draftCoverPhotoId.value)) {
+    draftCoverPhotoId.value = ''
+  }
 }
 
 const setDraftCoverPhoto = (photoId: string) => {
@@ -419,6 +549,7 @@ const columns = computed<any[]>(() => [
           <UButton
             icon="tabler:plus"
             variant="soft"
+            data-tour="album-create"
             @click="openCreateSlideover"
           >
             {{ $t('dashboard.albums.createButton') }}
@@ -455,7 +586,7 @@ const columns = computed<any[]>(() => [
                   class="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-600"
                 >
                   <Icon
-                    name="tabler:image"
+                    name="tabler:photo"
                     size="20"
                   />
                 </div>
@@ -497,7 +628,12 @@ const columns = computed<any[]>(() => [
                 variant="soft"
                 color="neutral"
               >
-                {{ $t('dashboard.albums.photoCount', { count: (row.original as unknown as AlbumItem).photoCount || 0 }) }}
+                {{
+                  $t('dashboard.albums.photoCount', {
+                    count:
+                      (row.original as unknown as AlbumItem).photoCount || 0,
+                  })
+                }}
               </UBadge>
             </template>
 
@@ -512,7 +648,30 @@ const columns = computed<any[]>(() => [
             </template>
 
             <template #actions-cell="{ row }">
-              <div class="flex gap-1">
+              <div
+                class="flex gap-1"
+                data-tour="album-actions"
+              >
+                <UButton
+                  variant="ghost"
+                  color="neutral"
+                  size="xs"
+                  icon="tabler:chevron-up"
+                  :disabled="row.index === 0 || isReorderingAlbums"
+                  :aria-label="$t('dashboard.albums.actions.moveUp')"
+                  @click="moveAlbum(row.index, -1)"
+                />
+                <UButton
+                  variant="ghost"
+                  color="neutral"
+                  size="xs"
+                  icon="tabler:chevron-down"
+                  :disabled="
+                    row.index === albums.length - 1 || isReorderingAlbums
+                  "
+                  :aria-label="$t('dashboard.albums.actions.moveDown')"
+                  @click="moveAlbum(row.index, 1)"
+                />
                 <UButton
                   variant="ghost"
                   color="primary"
@@ -646,14 +805,49 @@ const columns = computed<any[]>(() => [
                   />
                 </UFormField>
 
-                <UFormField
-                  :label="$t('dashboard.albums.form.isHidden')"
-                  name="isHidden"
-                  :hint="$t('dashboard.albums.form.isHiddenHint')"
-                >
+                <UFormField name="isHidden">
                   <UCheckbox
                     v-model="formData.isHidden"
                     :label="$t('dashboard.albums.form.isHidden')"
+                    :description="$t('dashboard.albums.form.isHiddenHint')"
+                  />
+                </UFormField>
+
+                <UFormField name="passwordEnabled">
+                  <UCheckbox
+                    v-model="formData.passwordEnabled"
+                    :label="$t('dashboard.albums.form.passwordProtection')"
+                    :description="
+                      $t('dashboard.albums.form.passwordProtectionHint')
+                    "
+                  />
+                </UFormField>
+                <AlbumProtectionWarning
+                  v-if="formData.passwordEnabled && isCurrentStorageNonLocal"
+                />
+                <UFormField
+                  v-if="formData.passwordEnabled"
+                  :label="$t('dashboard.albums.form.password')"
+                  name="password"
+                  :hint="
+                    currentAlbum?.hasPassword
+                      ? $t('dashboard.albums.form.passwordKeepHint')
+                      : $t('dashboard.albums.form.passwordLengthHint', {
+                          min: ALBUM_PASSWORD_MIN_LENGTH,
+                          max: ALBUM_PASSWORD_MAX_LENGTH,
+                        })
+                  "
+                >
+                  <UInput
+                    v-model="formData.password"
+                    type="password"
+                    autocomplete="new-password"
+                    class="w-full"
+                    :minlength="ALBUM_PASSWORD_MIN_LENGTH"
+                    :maxlength="ALBUM_PASSWORD_MAX_LENGTH"
+                    :placeholder="
+                      $t('dashboard.albums.form.passwordPlaceholder')
+                    "
                   />
                 </UFormField>
               </UForm>
@@ -703,7 +897,7 @@ const columns = computed<any[]>(() => [
                     class="grid grid-cols-4 gap-2 p-3 bg-gray-50 dark:bg-neutral-800/50 rounded-lg border border-gray-200 dark:border-neutral-700"
                   >
                     <div
-                      v-for="photoId in selectedPhotoIds"
+                      v-for="(photoId, index) in selectedPhotoIds"
                       :key="photoId"
                       class="relative group aspect-square rounded-lg overflow-hidden bg-gray-200 dark:bg-neutral-700"
                     >
@@ -723,15 +917,44 @@ const columns = computed<any[]>(() => [
                         {{ $t('dashboard.albums.modal.setCover') }}
                       </div>
 
-                      <button
-                        class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                        @click="togglePhotoSelection(photoId)"
+                      <div
+                        class="absolute top-1 right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-black/60 px-1 text-[10px] font-semibold text-white"
                       >
-                        <Icon
-                          name="tabler:x"
-                          class="text-white"
+                        {{ index + 1 }}
+                      </div>
+
+                      <div
+                        class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-wrap items-center justify-center gap-1"
+                      >
+                        <UButton
+                          size="xs"
+                          color="neutral"
+                          variant="solid"
+                          icon="tabler:chevron-up"
+                          :disabled="index === 0"
+                          :aria-label="$t('dashboard.albums.form.movePhotoUp')"
+                          @click="movePhoto(index, -1)"
                         />
-                      </button>
+                        <UButton
+                          size="xs"
+                          color="neutral"
+                          variant="solid"
+                          icon="tabler:chevron-down"
+                          :disabled="index === selectedPhotoIds.length - 1"
+                          :aria-label="
+                            $t('dashboard.albums.form.movePhotoDown')
+                          "
+                          @click="movePhoto(index, 1)"
+                        />
+                        <UButton
+                          size="xs"
+                          color="error"
+                          variant="solid"
+                          icon="tabler:x"
+                          :aria-label="$t('dashboard.albums.form.removePhoto')"
+                          @click="togglePhotoSelection(photoId)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -872,6 +1095,16 @@ const columns = computed<any[]>(() => [
                     </div>
                   </div>
 
+                  <p
+                    class="hidden items-center gap-1.5 text-xs text-neutral-500 pointer-fine:flex dark:text-neutral-400"
+                  >
+                    <Icon
+                      name="tabler:info-circle"
+                      class="size-3.5 shrink-0"
+                    />
+                    {{ $t('ui.action.select.rangeTip') }}
+                  </p>
+
                   <div class="flex flex-wrap gap-1">
                     <UBadge
                       v-if="selectedCounts.tags"
@@ -998,7 +1231,10 @@ const columns = computed<any[]>(() => [
                     v-for="photo in selectorFilteredPhotos"
                     :key="photo.id"
                     class="group text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400/60"
-                    @click="toggleDraftPhotoSelection(photo.id)"
+                    @mousedown="
+                      selectorRangeSelection.preventShiftTextSelection
+                    "
+                    @click="toggleDraftPhotoSelection(photo.id, $event)"
                   >
                     <div
                       class="relative aspect-square overflow-hidden rounded-lg border bg-gray-200/90 transition-all duration-200 dark:bg-neutral-700/80"
@@ -1026,7 +1262,11 @@ const columns = computed<any[]>(() => [
                           <p
                             class="truncate text-[10px] font-medium text-white/92"
                           >
-                            {{ photo.title || photo.storageKey || $t('ui.photo.untitled') }}
+                            {{
+                              photo.title ||
+                              photo.storageKey ||
+                              $t('ui.photo.untitled')
+                            }}
                           </p>
                           <p class="truncate text-[9px] text-white/72">
                             {{

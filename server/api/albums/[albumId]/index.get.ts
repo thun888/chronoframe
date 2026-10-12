@@ -1,7 +1,10 @@
-import { asc, getTableColumns } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import z from 'zod'
 import { applyThumbnailTransform } from '~~/server/utils/storageTransform'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
+
+import { fetchAlbumPhotos } from '../../../utils/album-visibility'
+import { albumAccess } from '../../../utils/album-access'
 
 export default eventHandler(async (event) => {
   const { albumId } = await getValidatedRouterParams(
@@ -31,42 +34,57 @@ export default eventHandler(async (event) => {
   }
 
   // 检查相册是否隐藏，如果隐藏则需要用户登录才能访问
-  if (album.isHidden) {
-    const session = await getUserSession(event)
-    if (!session.user) {
-      throw createError({
-        statusCode: 404,
-        statusMessage: 'Album not found',
-      })
-    }
-  }
+  const { admin: isLoggedIn, canAccess } = await albumAccess(event)
 
-  // 获取相册中的照片
-  const photos = await db
-    // all fields from tables.photos
-    .select({
-      ...getTableColumns(tables.photos),
+  if (album.isHidden && !isLoggedIn) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Album not found',
     })
-    .from(tables.photos)
-    .innerJoin(
-      tables.albumPhotos,
-      eq(tables.photos.id, tables.albumPhotos.photoId),
-    )
-    .where(eq(tables.albumPhotos.albumId, albumId))
-    .orderBy(asc(tables.albumPhotos.position))
-    .all()
-
-  // 验证相册数据完整性
-  if (!photos || !Array.isArray(photos)) {
-    // 空相册也是合法的，只需要返回空数组
-    return {
-      ...album,
-      photos: [],
-    }
   }
+
+  if (!canAccess(album)) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Album password required',
+    })
+  }
+
+  // Anonymous viewers must not see photos that are also members of any
+  // hidden album — otherwise a photo shared between a public and a hidden
+  // album would leak through the public album (see issue #299).
+  const rows = await fetchAlbumPhotos(
+    db,
+    tables,
+    albumId,
+    isLoggedIn,
+    isLoggedIn || Boolean(album.passwordHash),
+  )
+  const photos = album.passwordHash
+    ? rows.map((photo) => {
+        const fileName = photo.storageKey?.split(/[\\/]/).pop() || null
+        const {
+          storageKey: _storageKey,
+          thumbnailKey: _thumbnailKey,
+          livePhotoVideoKey: _livePhotoVideoKey,
+          ...safePhoto
+        } = photo
+        return {
+          ...safePhoto,
+          fileName,
+          originalUrl: `/image/__photo__/${encodeURIComponent(photo.id)}/original`,
+          thumbnailUrl: `/image/__photo__/${encodeURIComponent(photo.id)}/thumbnail`,
+          livePhotoVideoUrl: photo.livePhotoVideoUrl
+            ? `/image/__photo__/${encodeURIComponent(photo.id)}/live`
+            : null,
+        }
+      })
+    : rows
 
   return {
     ...album,
+    passwordHash: undefined,
+    hasPassword: Boolean(album.passwordHash),
     photos: applyThumbnailTransform(photos, storageProvider.config),
   }
 })

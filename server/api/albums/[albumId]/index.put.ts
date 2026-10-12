@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  ALBUM_PASSWORD_MAX_LENGTH,
+  ALBUM_PASSWORD_MIN_LENGTH,
+} from '~~/shared/utils/album-password'
+import { hashAlbumPassword } from '../../../utils/album-access'
 
 export default eventHandler(async (event) => {
   await requireUserSession(event)
@@ -21,6 +26,15 @@ export default eventHandler(async (event) => {
       coverPhotoId: z.string().optional(),
       photoIds: z.array(z.string()).optional(),
       isHidden: z.boolean().optional(),
+      password: z
+        .union([
+          z.literal(''),
+          z
+            .string()
+            .min(ALBUM_PASSWORD_MIN_LENGTH)
+            .max(ALBUM_PASSWORD_MAX_LENGTH),
+        ])
+        .optional(),
     }).parse,
   )
 
@@ -39,6 +53,13 @@ export default eventHandler(async (event) => {
       statusMessage: 'Album not found',
     })
   }
+
+  const passwordHash =
+    body.password !== undefined
+      ? body.password
+        ? await hashAlbumPassword(body.password)
+        : null
+      : undefined
 
   // 使用事务更新相簿
   const updatedAlbum = db.transaction((tx) => {
@@ -60,6 +81,9 @@ export default eventHandler(async (event) => {
     }
     if (body.isHidden !== undefined) {
       updateData.isHidden = body.isHidden
+    }
+    if (passwordHash !== undefined) {
+      updateData.passwordHash = passwordHash
     }
 
     tx.update(tables.albums)
@@ -104,5 +128,9 @@ export default eventHandler(async (event) => {
       .get()
   })
 
-  return updatedAlbum
+  return {
+    ...updatedAlbum,
+    passwordHash: undefined,
+    hasPassword: Boolean(updatedAlbum?.passwordHash),
+  }
 })

@@ -1,4 +1,4 @@
-import { desc, notInArray } from 'drizzle-orm'
+import { desc, notInArray, or, isNotNull } from 'drizzle-orm'
 import { applyThumbnailTransform } from '~~/server/utils/storageTransform'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
@@ -13,7 +13,7 @@ export default eventHandler(async (event) => {
     })
     .from(tables.albumPhotos)
     .innerJoin(tables.albums, eq(tables.albumPhotos.albumId, tables.albums.id))
-    .where(eq(tables.albums.isHidden, true))
+    .where(or(eq(tables.albums.isHidden, true), isNotNull(tables.albums.passwordHash)))
     .all()
 
   const hiddenPhotoIds = hiddenAlbumPhotos.map((row) => row.photoId)

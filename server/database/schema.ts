@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm'
 import {
+  index,
+  integer,
+  primaryKey,
+  real,
   sqliteTable,
   text,
-  integer,
-  real,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 import type { NeededExif } from '~~/shared/types/photo'
@@ -70,46 +72,75 @@ export const photos = sqliteTable('photos', {
   motionPhotoVideoOffset: integer('motion_photo_video_offset'),
 })
 
-export const pipelineQueue = sqliteTable('pipeline_queue', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  payload: text('payload', { mode: 'json' })
-    .$type<PipelineQueuePayload>()
-    .notNull()
-    .default({
-      type: 'photo',
-      storageKey: '',
-    } satisfies PipelineQueuePayload),
-  priority: integer('priority').default(0).notNull(),
-  attempts: integer('attempts').default(0).notNull(),
-  maxAttempts: integer('max_attempts').default(3).notNull(),
-  status: text('status', {
-    enum: [
-      'pending', // Waiting to be processed
-      'in-stages', // Currently being processed
-      'completed', // Successfully processed
-      'failed', // Processing failed
-    ],
-  })
-    .notNull()
-    .default('pending'),
-  statusStage: text('status_stage', {
-    enum: [
-      'preprocessing',
-      'metadata',
-      'thumbnail',
-      'exif',
-      'motion-photo',
-      'reverse-geocoding',
-      'live-photo',
-      'location-erase',
-    ],
-  }),
-  errorMessage: text('error_message'),
-  createdAt: integer('created_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  completedAt: integer('completed_at', { mode: 'timestamp' }),
-})
+// One row per string an image request may use to identify a photo: the photo
+// id, each storage key, each public URL, and the tidied form of those paths.
+// Photos insert/update/delete triggers (migration 0014) keep the rows in sync.
+// Album checks look up this indexed key instead of reading every photos row.
+export const photoAccessKeys = sqliteTable(
+  'photo_access_keys',
+  {
+    accessKey: text('access_key').notNull(),
+    photoId: text('photo_id')
+      .notNull()
+      .references(() => photos.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.accessKey, t.photoId] }),
+    index('idx_photo_access_keys_photo_id').on(t.photoId),
+  ],
+)
+
+export const pipelineQueue = sqliteTable(
+  'pipeline_queue',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    payload: text('payload', { mode: 'json' })
+      .$type<PipelineQueuePayload>()
+      .notNull()
+      .default({
+        type: 'photo',
+        storageKey: '',
+      } satisfies PipelineQueuePayload),
+    priority: integer('priority').default(0).notNull(),
+    availableAt: integer('available_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`0`),
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    status: text('status', {
+      enum: [
+        'pending', // Waiting to be processed
+        'in-stages', // Currently being processed
+        'completed', // Successfully processed
+        'failed', // Processing failed
+      ],
+    })
+      .notNull()
+      .default('pending'),
+    statusStage: text('status_stage', {
+      enum: [
+        'preprocessing',
+        'metadata',
+        'thumbnail',
+        'exif',
+        'motion-photo',
+        'reverse-geocoding',
+        'live-photo',
+        'location-erase',
+      ],
+    }),
+    errorMessage: text('error_message'),
+    createdAt: integer('created_at', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    completedAt: integer('completed_at', { mode: 'timestamp' }),
+  },
+  (t) => [
+    index('idx_pipeline_queue_pending')
+      .on(sql`${t.priority} DESC`, t.createdAt, t.id)
+      .where(sql`${t.status} = 'pending'`),
+  ],
+)
 
 // 照片表态表
 export const photoReactions = sqliteTable('photo_reactions', {
@@ -141,6 +172,9 @@ export const albums = sqliteTable('albums', {
     onDelete: 'set null',
   }),
   isHidden: integer('is_hidden', { mode: 'boolean' }).default(false).notNull(),
+  passwordHash: text('password_hash'),
+  // Album sort position (ascending; smaller value appears first)
+  position: real('position').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' })
     .notNull()
     .default(sql`(unixepoch())`),

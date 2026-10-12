@@ -3,6 +3,7 @@ import { applyThumbnailTransform } from '~~/server/utils/storageTransform'
 import { useStorageProvider } from '~~/server/utils/useStorageProvider'
 
 export default eventHandler(async (event) => {
+  await requireUserSession(event)
   const { storageProvider } = useStorageProvider(event)
   return applyThumbnailTransform(
     await useDB()

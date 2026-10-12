@@ -1,4 +1,10 @@
+import { min } from 'drizzle-orm'
 import z from 'zod'
+import {
+  ALBUM_PASSWORD_MAX_LENGTH,
+  ALBUM_PASSWORD_MIN_LENGTH,
+} from '~~/shared/utils/album-password'
+import { hashAlbumPassword } from '../../utils/album-access'
 
 export default eventHandler(async (event) => {
   await requireUserSession(event)
@@ -11,12 +17,29 @@ export default eventHandler(async (event) => {
       coverPhotoId: z.string().optional(),
       photoIds: z.array(z.string()).optional(),
       isHidden: z.boolean().optional(),
+      password: z
+        .string()
+        .min(ALBUM_PASSWORD_MIN_LENGTH)
+        .max(ALBUM_PASSWORD_MAX_LENGTH)
+        .optional(),
     }).parse,
   )
 
   const db = useDB()
 
+  const passwordHash = body.password
+    ? await hashAlbumPassword(body.password)
+    : null
+
   const album = db.transaction((tx) => {
+    // Place new album first (min position minus one gap), preserving the
+    // default "newest first" order
+    const minRow = tx
+      .select({ min: min(tables.albums.position) })
+      .from(tables.albums)
+      .get()
+    const position = (minRow?.min ?? 1000) - 1000
+
     const newAlbum = tx
       .insert(tables.albums)
       .values({
@@ -24,6 +47,8 @@ export default eventHandler(async (event) => {
         description: body.description || null,
         coverPhotoId: body.coverPhotoId || null,
         isHidden: body.isHidden || false,
+        passwordHash,
+        position,
       })
       .returning()
       .get()
@@ -49,7 +74,11 @@ export default eventHandler(async (event) => {
       }
     }
 
-    return newAlbum
+    return {
+      ...newAlbum,
+      passwordHash: undefined,
+      hasPassword: Boolean(newAlbum.passwordHash),
+    }
   })
 
   return album

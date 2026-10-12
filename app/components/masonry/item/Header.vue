@@ -31,13 +31,7 @@ const handleOpenLogin = () => {
 
 const { hasActiveFilters, selectedCounts } = usePhotoFilters()
 
-const {
-  currentSortLabel,
-  currentSortIcon,
-  currentSortOption,
-  availableSorts,
-  setSortOption,
-} = usePhotoSort()
+const { currentSortIcon, currentSortOption } = usePhotoSort()
 
 const totalSelectedFilters = computed(() => {
   return Object.values(selectedCounts.value).reduce(
@@ -78,8 +72,10 @@ const isRepoLinkHovering = ref(false)
                 "
                 class="size-16 rounded-full object-cover"
                 :class="!loggedIn && 'cursor-pointer'"
+                data-tour="home-avatar"
                 :alt="$t('ui.photo.avatarAlt')"
                 @click="!loggedIn && handleOpenLogin()"
+                @error="handleAvatarError"
               />
             </div>
             <h1
@@ -178,36 +174,7 @@ const isRepoLinkHovering = ref(false)
               </UTooltip>
 
               <template #content>
-                <UCard
-                  variant="glassmorphism"
-                  class="w-3xs"
-                >
-                  <template #header>
-                    <h3 class="font-bold text-sm p-1">
-                      {{ $t('ui.action.sort.title') }}
-                    </h3>
-                  </template>
-
-                  <div class="space-y-1">
-                    <UButton
-                      v-for="sort in availableSorts"
-                      :key="sort.key"
-                      :variant="
-                        currentSortLabel === sort.labelI18n ? 'soft' : 'ghost'
-                      "
-                      :color="
-                        currentSortLabel === sort.labelI18n ? 'info' : 'neutral'
-                      "
-                      :icon="sort.icon"
-                      size="sm"
-                      block
-                      class="justify-start"
-                      @click="setSortOption(sort.key)"
-                    >
-                      {{ $t(sort.labelI18n) }}
-                    </UButton>
-                  </div>
-                </UCard>
+                <OverlaySortPanel />
               </template>
             </UPopover>
             <UTooltip :text="$t('ui.action.theme.tooltip')">
@@ -230,6 +197,7 @@ const isRepoLinkHovering = ref(false)
                 variant="soft"
                 class="bg-transparent rounded-full cursor-pointer"
                 icon="tabler:dashboard"
+                data-tour="home-dashboard"
                 to="/dashboard"
               />
             </UTooltip>

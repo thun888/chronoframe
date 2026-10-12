@@ -1,5 +1,6 @@
 import pkg from './package.json'
 import type { AnalyticsConfig } from './shared/types/config'
+import i18n, { dayjsLocales } from './i18n/i18n.options'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -140,32 +141,34 @@ export default defineNuxtConfig({
   vite: {
     optimizeDeps: {
       include: [
-        'zod',
-        'dayjs',
-        'dayjs/plugin/updateLocale',
-        'dayjs/locale/zh-cn',
-        'dayjs/locale/zh-hk',
-        'dayjs/locale/zh-tw',
-        'dayjs/locale/en',
-        'dayjs/plugin/relativeTime',
-        'dayjs/plugin/utc',
-        'dayjs/plugin/timezone',
-        'dayjs/plugin/duration',
-        'dayjs/plugin/localizedFormat',
-        'dayjs/plugin/isBetween',
+        '@indoorequal/vue-maplibre-gl',
         '@yeger/vue-masonry-wall',
+        'dayjs', // CJS
+        'dayjs/locale/en', // CJS
+        'dayjs/locale/ja', // CJS
+        'dayjs/locale/ru', // CJS
+        'dayjs/locale/zh-cn', // CJS
+        'dayjs/locale/zh-hk', // CJS
+        'dayjs/locale/zh-tw', // CJS
+        'dayjs/plugin/duration', // CJS
+        'dayjs/plugin/isBetween', // CJS
+        'dayjs/plugin/localizedFormat', // CJS
+        'dayjs/plugin/relativeTime', // CJS
+        'dayjs/plugin/timezone', // CJS
+        'dayjs/plugin/updateLocale', // CJS
+        'dayjs/plugin/utc', // CJS
+        'es-toolkit',
+        'file-type',
+        'mapbox-gl', // CJS
+        'maplibre-gl',
         'motion-v',
-        'swiper/vue',
+        'reka-ui',
         'swiper/modules',
+        'swiper/vue',
         'tailwind-merge',
         'thumbhash',
-        'mapbox-gl',
-        'maplibre-gl',
-        '@indoorequal/vue-maplibre-gl',
-        'file-type',
-        'reka-ui',
-        'es-toolkit',
         'tippy.js',
+        'zod',
       ],
     },
     ssr: {
@@ -240,12 +243,15 @@ export default defineNuxtConfig({
     },
   },
 
-  ogImage: {
-    fonts: ['Rubik:400', 'Rubik:700', 'Noto+Sans+SC:400', 'Noto+Sans+SC:700'],
+  fonts: {
+    families: [
+      { name: 'Rubik', weights: [400, 500, 600, 700], global: true },
+      { name: 'Noto Sans SC', weights: [400, 500, 600, 700], global: true },
+    ],
   },
 
   dayjs: {
-    locales: ['zh-cn', 'zh-hk', 'en'],
+    locales: dayjsLocales,
     plugins: [
       'relativeTime',
       'utc',
@@ -257,38 +263,5 @@ export default defineNuxtConfig({
     defaultTimezone: 'Asia/Shanghai',
   },
 
-  i18n: {
-    experimental: {
-      localeDetector: 'localeDetector.ts',
-    },
-    detectBrowserLanguage: {
-      fallbackLocale: 'en',
-      useCookie: false,
-      cookieKey: 'chronoframe-locale',
-    },
-    strategy: 'no_prefix',
-    defaultLocale: 'en',
-    locales: [
-      {
-        code: 'zh-Hans',
-        name: '简体中文',
-        file: 'zh-Hans.json',
-        language: 'zh',
-      },
-      {
-        code: 'zh-Hant-TW',
-        name: '繁体中文(台湾)',
-        file: 'zh-Hant-TW.json',
-        language: 'zh-TW',
-      },
-      {
-        code: 'zh-Hant-HK',
-        name: '繁体中文(香港)',
-        file: 'zh-Hant-HK.json',
-        language: 'zh-HK',
-      },
-      { code: 'en', name: 'English', file: 'en.json', language: 'en' },
-      { code: 'ja', name: '日本語', file: 'ja.json', language: 'ja' },
-    ],
-  },
+  i18n,
 })

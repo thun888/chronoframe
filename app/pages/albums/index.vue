@@ -3,8 +3,9 @@ import { motion } from 'motion-v'
 import type { Album } from '~~/server/utils/db'
 interface AlbumWithPhotos extends Album {
   photoIds?: string[]
+  hasPassword?: boolean
 }
-const config = useRuntimeConfig()
+const appSlogan = useSettingRef('app:slogan')
 const { photos } = usePhotos()
 const { loggedIn } = useUserSession()
 const { data: albums } = useAsyncData<AlbumWithPhotos[]>(
@@ -202,7 +203,7 @@ const hoveredAlbum = ref<number | null>(null)
       <p
         class="mt-2 text-lg text-neutral-600 dark:text-neutral-400 font-medium font-[Pacifico]"
       >
-        {{ config.public.app.slogan }}
+        {{ appSlogan }}
       </p>
     </div>
 
@@ -274,14 +275,14 @@ const hoveredAlbum = ref<number | null>(null)
               class="absolute inset-0 rounded-xl shadow-lg bg-linear-to-br from-neutral-100 to-neutral-50 dark:from-neutral-700 dark:to-neutral-800 flex flex-col items-center justify-center gap-3 border border-neutral-200 dark:border-neutral-600 group-hover:shadow-xl dark:group-hover:shadow-neutral-900/50 transition-shadow"
             >
               <Icon
-                name="tabler:library-photo"
+                :name="album.hasPassword ? 'tabler:lock' : 'tabler:library-photo'"
                 class="size-10 text-neutral-400 dark:text-neutral-500"
               />
               <div class="text-center">
                 <p
                   class="text-sm font-medium text-neutral-700 dark:text-neutral-300"
                 >
-                  {{ $t('ui.album.noImage') }}
+                  {{ album.hasPassword ? $t('album.passwordRequired') : $t('ui.album.noImage') }}
                 </p>
                 <!-- <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                   {{ $t('ui.album.emptyAlbumTip') }}
@@ -293,31 +294,28 @@ const hoveredAlbum = ref<number | null>(null)
           <!-- Album Info -->
           <div class="px-2">
             <div class="flex flex-col gap-0">
-              <div class="flex items-center gap-8">
-                <h2
-                  class="flex-1 truncate text-lg font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
-                  :class="{
-                    'text-primary-600 dark:text-primary-400':
-                      hoveredAlbum === album.id,
-                  }"
-                >
-                  {{ album.title }}
-                </h2>
-
-                <p
-                  class="flex items-center gap-0.5 text-sm text-neutral-600 dark:text-neutral-400"
-                >
-                  <Icon
-                    name="tabler:clock"
-                    class="h-lh size-4"
-                  />
-                  {{ $dayjs(album.createdAt).fromNow() }}
-                </p>
-              </div>
+              <h2
+                class="truncate text-lg font-semibold text-neutral-800 dark:text-neutral-200 transition-colors"
+                :class="{
+                  'text-primary-600 dark:text-primary-400':
+                    hoveredAlbum === album.id,
+                }"
+              >
+                {{ album.title }}
+              </h2>
               <p
                 class="text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2"
               >
                 {{ album.description || $t('ui.album.noDescription') }}
+              </p>
+              <p
+                class="mt-1 flex items-center justify-start gap-0.5 text-sm text-neutral-600 dark:text-neutral-400"
+              >
+                <Icon
+                  name="tabler:clock"
+                  class="h-lh size-4"
+                />
+                {{ $dayjs(album.createdAt).fromNow() }}
               </p>
             </div>
           </div>

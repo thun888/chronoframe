@@ -1,11 +1,30 @@
+import { tourIds } from '~~/shared/types/tours'
 import type { SettingConfig } from '~~/shared/types/settings'
+import i18nOptions from '~~/i18n/i18n.options'
 
 // 存储提供商的枚举值
 export const STORAGE_PROVIDERS = ['local', 's3', 'openlist'] as const
 export type StorageProvider = (typeof STORAGE_PROVIDERS)[number]
 
 export const DEFAULT_SETTINGS = [
+  ...tourIds.map((id) => ({
+    namespace: 'system' as const,
+    key: `tour.${id}` as const,
+    type: 'string' as const,
+    defaultValue: 'pending',
+    enum: ['pending', 'completed', 'skipped'],
+    hidden: true,
+    isReadonly: true,
+  })),
   // NAMESPACE: system
+  {
+    namespace: 'system',
+    key: 'queue.workerCount',
+    type: 'number',
+    defaultValue: 5,
+    label: 'settings.system.queue.workerCount.label',
+    description: 'settings.system.queue.workerCount.description',
+  },
   {
     namespace: 'system',
     key: 'firstLaunch',
@@ -52,6 +71,13 @@ export const DEFAULT_SETTINGS = [
     label: 'settings.app.avatarUrl.label',
     description: 'settings.app.avatarUrl.description',
     isPublic: true,
+  },
+  {
+    namespace: 'app',
+    key: 'avatarStorageKey',
+    type: 'string',
+    defaultValue: '',
+    hidden: true,
   },
   {
     namespace: 'app',
@@ -189,7 +215,7 @@ export const DEFAULT_SETTINGS = [
     key: 'language',
     type: 'string',
     defaultValue: 'en',
-    enum: ['en', 'zh-CN', 'zh-TW', 'ja'] as const,
+    enum: i18nOptions.locales.map(({ language }) => language),
     label: 'settings.location.language.label',
     description: 'settings.location.language.description',
     isPublic: true,
@@ -221,6 +247,25 @@ export const DEFAULT_SETTINGS = [
     label: 'settings.storage_provider.provider.label',
     description: 'settings.storage_provider.provider.description',
   },
+  // NAMESPACE: analytics
+  {
+    namespace: 'analytics',
+    key: 'headScripts',
+    type: 'string',
+    defaultValue: '',
+    label: 'settings.analytics.headScripts.label',
+    description: 'settings.analytics.headScripts.description',
+    isPublic: true,
+  },
+  {
+    namespace: 'analytics',
+    key: 'bodyScripts',
+    type: 'string',
+    defaultValue: '',
+    label: 'settings.analytics.bodyScripts.label',
+    description: 'settings.analytics.bodyScripts.description',
+    isPublic: true,
+  },
 ] as const satisfies SettingConfig[]
 
 export const settingNamespaces = [
@@ -235,3 +280,12 @@ export type SettingKey<N extends SettingNamespace> = Extract<
   (typeof DEFAULT_SETTINGS)[number],
   { namespace: N }
 >['key']
+
+export function getHiddenSettingKeys(namespace: string): Set<string> {
+  const settings = DEFAULT_SETTINGS as readonly SettingConfig[]
+  return new Set(
+    settings
+      .filter((setting) => setting.namespace === namespace && setting.hidden)
+      .map((setting) => setting.key),
+  )
+}

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { settingsManager } from '~~/server/services/settings/settingsManager'
+import { getHiddenSettingKeys } from '~~/server/services/settings/contants'
 import { getSettingUIConfig } from '~~/server/services/settings/ui-config'
 import type { FieldDescriptor } from '~~/shared/types/settings'
 
@@ -231,8 +232,9 @@ export default eventHandler(async (event) => {
   // 3. App & Map Schemas (From Settings Manager)
   try {
     const schema = await settingsManager.getSchema()
+    const hiddenKeys = getHiddenSettingKeys(query.namespace)
     const namespaceSettings = schema.filter(
-      (s) => s.namespace === query.namespace,
+      (s) => s.namespace === query.namespace && !hiddenKeys.has(s.key),
     )
 
     const fields = namespaceSettings.map((setting) => {
@@ -258,6 +260,29 @@ export default eventHandler(async (event) => {
                 description: 'wizard.map.provider.maplibre.description',
               },
             ],
+          },
+        }
+      }
+
+      if (
+        query.namespace === 'map' &&
+        (setting.key === 'mapbox.token' || setting.key === 'maplibre.token')
+      ) {
+        return {
+          ...setting,
+          ui: {
+            ...(uiConfig || { type: 'password' as const }),
+            required: false,
+          },
+        }
+      }
+
+      if (query.namespace === 'app' && setting.key === 'avatarUrl') {
+        return {
+          ...setting,
+          ui: {
+            ...(uiConfig || { type: 'input' as const, required: false }),
+            help: 'wizard.site.avatarUrl.help',
           },
         }
       }
