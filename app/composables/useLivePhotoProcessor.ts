@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { findMotionPhotoVideoOffset } from '~~/shared/utils/motion-photo'
 
 interface LivePhotoProcessingState {
   isProcessing: boolean
@@ -14,67 +15,6 @@ interface LivePhotoProcessingState {
 const processedLivePhotos = ref<Map<string, LivePhotoProcessingState>>(
   new Map(),
 )
-
-/**
- * 在 ArrayBuffer 中定位嵌入的 MP4 视频偏移量
- * 移植自 @thun888/live-photo 的 findVideoOffset 算法
- */
-function findVideoOffset(buffer: ArrayBuffer): number {
-  // 1. Google MicroVideoOffset (XMP 元数据)
-  const text = new TextDecoder().decode(
-    // 只扫描前 512KB，XMP 不会在更后面
-    buffer.slice(0, 512 * 1024),
-  )
-  let match = text.match(/MicroVideoOffset=["']?(\d+)["']?/)
-  if (!match) match = text.match(/MicroVideoOffset>(\d+)</)
-
-  if (match) {
-    const reverseOffset = parseInt(match[1], 10)
-    const offset = buffer.byteLength - reverseOffset
-    if (offset > 0 && offset < buffer.byteLength) {
-      return offset
-    }
-  }
-
-  // 2. 回退：扫描 ftyp 签名（兼容三星等设备）
-  const view = new Uint8Array(buffer)
-  const ftyp = [0x66, 0x74, 0x79, 0x70] // 'ftyp'
-
-  // 从文件末尾 8MB 开始扫描（视频通常在末尾）
-  const scanStart = Math.max(0, view.length - 8 * 1024 * 1024)
-  for (let i = scanStart; i < view.length - 4; i++) {
-    if (
-      view[i] === ftyp[0] &&
-      view[i + 1] === ftyp[1] &&
-      view[i + 2] === ftyp[2] &&
-      view[i + 3] === ftyp[3]
-    ) {
-      const offset = i - 4
-      // 验证：视频块至少 8KB
-      if (offset > 0 && buffer.byteLength - offset > 8 * 1024) {
-        return offset
-      }
-    }
-  }
-
-  // 全文扫描兜底
-  for (let i = 0; i < scanStart; i++) {
-    if (
-      view[i] === ftyp[0] &&
-      view[i + 1] === ftyp[1] &&
-      view[i + 2] === ftyp[2] &&
-      view[i + 3] === ftyp[3]
-    ) {
-      const offset = i - 4
-      if (offset > 0 && buffer.byteLength - offset > 8 * 1024) {
-        // 排除文件开头的 ftyp（那是图片格式的 ftyp，不是视频的）
-        if (i > 32) return offset
-      }
-    }
-  }
-
-  return -1
-}
 
 export const useLivePhotoProcessor = () => {
   /**
@@ -357,12 +297,11 @@ export const useLivePhotoProcessor = () => {
 
       updateProgress(70)
 
-      // 查找嵌入视频的偏移量（优先使用后端预计算的值）
+      const view = new Uint8Array(buffer)
       const offset =
-        videoOffset != null && videoOffset > 0
-          ? videoOffset
-          : findVideoOffset(buffer)
-      if (offset <= 0) {
+        findMotionPhotoVideoOffset(view)?.offset ??
+        (videoOffset != null && videoOffset > 0 ? videoOffset : null)
+      if (offset === null) {
         throw new Error('No embedded video found in Motion Photo')
       }
 
