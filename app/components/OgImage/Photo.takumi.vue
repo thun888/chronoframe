@@ -25,14 +25,22 @@ const resolvedAppTitle = computed(() => {
   return 'ChronoFrame'
 })
 
-const headline = computed(() => (photo ? $i18n.t('title.fallback.photo') : 'ChronoFrame'))
-const title = computed(() => (photo?.title || resolvedAppTitle.value).slice(0, 60))
-const description = computed(() => (photo ? photo.description || '' : resolvedAppTitle.value).slice(0, 200))
-const thumbnailUrl = computed(() => 
-  photo?.thumbnailKey && photo.thumbnailUrl
-  ? `/thumb/${encodeURIComponent(photo.thumbnailUrl)}`
-  : undefined
+const headline = computed(() =>
+  photo ? $i18n.t('title.fallback.photo') : 'ChronoFrame',
 )
+const title = computed(() =>
+  (photo?.title || resolvedAppTitle.value).slice(0, 60),
+)
+const description = computed(() =>
+  (photo ? photo.description || '' : resolvedAppTitle.value).slice(0, 200),
+)
+// 绝对链接（含储存转换的后缀图）直接取，避免 /thumb 校验 404
+// 相对路径经 /thumb 重编码
+const thumbnailUrl = computed(() => {
+  const src = photo?.thumbnailUrl
+  if (!src) return undefined
+  return /^https?:\/\//i.test(src) ? src : `/thumb/${encodeURIComponent(src)}`
+})
 </script>
 
 <template>
@@ -80,9 +88,7 @@ const thumbnailUrl = computed(() =>
             v-if="photo.city"
             class="flex flex-row items-center gap-1"
           >
-            <span
-              class="og-photo__icon og-photo__icon--meta text-neutral-300"
-            >
+            <span class="og-photo__icon og-photo__icon--meta text-neutral-300">
               <IconifyIcon
                 class="og-photo__svg og-photo__svg--meta"
                 icon="tabler:map-pin"
@@ -100,9 +106,7 @@ const thumbnailUrl = computed(() =>
             v-if="photo.exif?.Model"
             class="flex flex-row items-center gap-1"
           >
-            <span
-              class="og-photo__icon og-photo__icon--meta text-neutral-300"
-            >
+            <span class="og-photo__icon og-photo__icon--meta text-neutral-300">
               <IconifyIcon
                 class="og-photo__svg og-photo__svg--meta"
                 icon="tabler:camera"
@@ -125,9 +129,7 @@ const thumbnailUrl = computed(() =>
         <div
           class="og-photo__exif-card rounded-3xl px-6 py-4 flex items-center gap-3"
         >
-          <span
-            class="og-photo__icon og-photo__icon--exif text-amber-400"
-          >
+          <span class="og-photo__icon og-photo__icon--exif text-amber-400">
             <IconifyIcon
               class="og-photo__svg og-photo__svg--exif"
               icon="streamline:image-accessories-lenses-photos-camera-shutter-picture-photography-pictures-photo-lens"
@@ -144,9 +146,7 @@ const thumbnailUrl = computed(() =>
         <div
           class="og-photo__exif-card rounded-3xl px-6 py-4 flex items-center gap-3"
         >
-          <span
-            class="og-photo__icon og-photo__icon--exif text-purple-400"
-          >
+          <span class="og-photo__icon og-photo__icon--exif text-purple-400">
             <IconifyIcon
               class="og-photo__svg og-photo__svg--exif"
               icon="tabler:aperture"
@@ -161,9 +161,7 @@ const thumbnailUrl = computed(() =>
         <div
           class="og-photo__exif-card rounded-3xl px-6 py-4 flex items-center gap-3"
         >
-          <span
-            class="og-photo__icon og-photo__icon--exif text-emerald-400"
-          >
+          <span class="og-photo__icon og-photo__icon--exif text-emerald-400">
             <IconifyIcon
               class="og-photo__svg og-photo__svg--exif"
               icon="material-symbols:shutter-speed"
@@ -178,9 +176,7 @@ const thumbnailUrl = computed(() =>
         <div
           class="og-photo__exif-card rounded-3xl px-6 py-4 flex items-center gap-3"
         >
-          <span
-            class="og-photo__icon og-photo__icon--exif text-sky-400"
-          >
+          <span class="og-photo__icon og-photo__icon--exif text-sky-400">
             <IconifyIcon
               class="og-photo__svg og-photo__svg--exif"
               icon="carbon:iso-outline"
@@ -199,7 +195,7 @@ const thumbnailUrl = computed(() =>
 
 <style scoped>
 .og-photo {
-  font-family: "Rubik", "Noto Sans SC", sans-serif;
+  font-family: 'Rubik', 'Noto Sans SC', sans-serif;
 }
 
 .og-photo__gradient {

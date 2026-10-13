@@ -18,7 +18,13 @@ const countLabel = computed(() => {
   if (typeof props.photoCount !== 'number') return ''
   return $i18n.t('plural.photo', { count: props.photoCount }, props.photoCount)
 })
-const covers = computed(() => (props.thumbnails || []).slice(0, 3))
+const covers = computed(() =>
+  (props.thumbnails || []).slice(0, 3).map((url) => {
+    if (!url) return ''
+    // 绝对链接（含储存转换的后缀图）直接取，避免 /thumb 校验 404
+    return /^https?:\/\//i.test(url) ? url : `/thumb/${encodeURIComponent(url)}`
+  }),
+)
 </script>
 
 <template>
@@ -62,7 +68,7 @@ const covers = computed(() => (props.thumbnails || []).slice(0, 3))
       <div class="og-home__frame">
         <img
           v-if="covers[0]"
-          :src="'/thumb/' + encodeURIComponent(covers[0] || '')"
+          :src="covers[0]"
           class="og-home__image"
         />
         <div
@@ -76,7 +82,7 @@ const covers = computed(() => (props.thumbnails || []).slice(0, 3))
       <div class="og-home__frame og-home__tall">
         <img
           v-if="covers[1]"
-          :src="'/thumb/' + encodeURIComponent(covers[1] || '')"
+          :src="covers[1]"
           class="og-home__image"
         />
         <div
@@ -90,7 +96,7 @@ const covers = computed(() => (props.thumbnails || []).slice(0, 3))
       <div class="og-home__frame">
         <img
           v-if="covers[2]"
-          :src="'/thumb/' + encodeURIComponent(covers[2] || '')"
+          :src="covers[2]"
           class="og-home__image"
         />
         <div
